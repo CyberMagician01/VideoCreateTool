@@ -28,14 +28,9 @@ QWEN_BASE_URL = os.getenv(
 )
 WAN_MODEL = os.getenv("WAN_MODEL", "wan2.6-t2v")
 WAN_BASE_URL = os.getenv("WAN_BASE_URL", "https://dashscope.aliyuncs.com/api/v1")
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", "").strip()
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
-CLAUDE_BASE_URL = os.getenv("CLAUDE_BASE_URL", "https://api.anthropic.com/v1")
 
 ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "").strip()
 ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4")
@@ -58,13 +53,6 @@ MODEL_PROVIDERS = {
         "model": OPENAI_MODEL,
         "base_url": OPENAI_BASE_URL,
         "type": "openai_compatible"
-    },
-    "claude": {
-        "name": "Claude (Anthropic)",
-        "api_key": CLAUDE_API_KEY,
-        "model": CLAUDE_MODEL,
-        "base_url": CLAUDE_BASE_URL,
-        "type": "anthropic"
     },
     "zhipu": {
         "name": "智谱 AI (GLM)",
@@ -114,10 +102,7 @@ def _call_provider_json(provider: str, system_prompt: str, user_prompt: str) -> 
     if not provider_config["api_key"]:
         raise RuntimeError(f"{provider_config['name']} API key is missing in .env")
     
-    if provider_config["type"] == "anthropic":
-        return _call_anthropic_json(provider_config, system_prompt, user_prompt)
-    else:
-        return _call_openai_compatible_json(provider_config, system_prompt, user_prompt)
+    return _call_openai_compatible_json(provider_config, system_prompt, user_prompt)
 
 
 def _call_provider_text(provider: str, system_prompt: str, user_prompt: str) -> str:
@@ -128,10 +113,7 @@ def _call_provider_text(provider: str, system_prompt: str, user_prompt: str) -> 
     if not provider_config["api_key"]:
         raise RuntimeError(f"{provider_config['name']} API key is missing in .env")
     
-    if provider_config["type"] == "anthropic":
-        return _call_anthropic_text(provider_config, system_prompt, user_prompt)
-    else:
-        return _call_openai_compatible_text(provider_config, system_prompt, user_prompt)
+    return _call_openai_compatible_text(provider_config, system_prompt, user_prompt)
 
 
 def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt: str, user_prompt: str) -> Dict[str, Any]:
@@ -175,53 +157,6 @@ def _call_openai_compatible_text(provider_config: Dict[str, Any], system_prompt:
     response.raise_for_status()
     data = response.json()
     return data["choices"][0]["message"]["content"].strip()
-
-
-def _call_anthropic_json(provider_config: Dict[str, Any], system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-    url = f"{provider_config['base_url']}/messages"
-    headers = {
-        "x-api-key": provider_config["api_key"],
-        "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01",
-    }
-    body = {
-        "model": provider_config["model"],
-        "temperature": 0.7,
-        "max_tokens": 4096,
-        "system": system_prompt,
-        "messages": [
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-    
-    response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
-    response.raise_for_status()
-    data = response.json()
-    content = data["content"][0]["text"]
-    return _extract_json(content)
-
-
-def _call_anthropic_text(provider_config: Dict[str, Any], system_prompt: str, user_prompt: str) -> str:
-    url = f"{provider_config['base_url']}/messages"
-    headers = {
-        "x-api-key": provider_config["api_key"],
-        "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01",
-    }
-    body = {
-        "model": provider_config["model"],
-        "temperature": 0.8,
-        "max_tokens": 4096,
-        "system": system_prompt,
-        "messages": [
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-    
-    response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
-    response.raise_for_status()
-    data = response.json()
-    return data["content"][0]["text"].strip()
 
 
 def _call_qwen_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
