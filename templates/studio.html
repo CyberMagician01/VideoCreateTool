@@ -32,6 +32,18 @@
         <p>完成从灵感到剧情节点的核心生成，数据会自动保存在浏览器。</p>
       </header>
 
+      <section class="panel soft">
+        <div class="grid two">
+          <div>
+            <label for="provider-selector" style="display:block; margin-bottom:8px; font-weight:600;">选择 AI 模型</label>
+            <select id="provider-selector"></select>
+          </div>
+          <div style="display:flex; align-items:center;">
+            <span id="provider-display" style="color:var(--muted);"></span>
+          </div>
+        </div>
+      </section>
+
       <section class="panel">
         <h2>第一层：故事引擎</h2>
         <div class="grid two">
@@ -40,10 +52,18 @@
             <input id="theme" placeholder="主题偏好（可选）" />
             <input id="tone" placeholder="情绪基调（可选）" />
             <input id="structure" placeholder="结构模板偏好（可选）" />
-            <button id="btn-story">生成故事卡</button>
+            <div class="grid two">
+              <button id="btn-story">生成故事卡</button>
+              <button id="btn-story-compare" style="background: linear-gradient(135deg, #4a90e2, #007bff);">模型对比</button>
+            </div>
           </div>
         </div>
         <pre id="story-output" class="output"></pre>
+      </section>
+
+      <section class="panel" id="compare-panel" style="display:none;">
+        <h2>模型对比结果</h2>
+        <div id="compare-results" class="grid two"></div>
       </section>
 
       <section class="panel">

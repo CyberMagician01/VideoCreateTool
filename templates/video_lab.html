@@ -29,8 +29,20 @@
 
       <header class="hero compact">
         <h1>视频实验室</h1>
-        <p>先用千问写短剧与镜头提示词，再用万相文生视频出片。</p>
+        <p>用 AI 写短剧与镜头提示词，再用万相文生视频出片。</p>
       </header>
+
+      <section class="panel soft">
+        <div class="grid two">
+          <div>
+            <label for="provider-selector" style="display:block; margin-bottom:8px; font-weight:600;">选择 AI 模型</label>
+            <select id="provider-selector"></select>
+          </div>
+          <div style="display:flex; align-items:center;">
+            <span id="provider-display" style="color:var(--muted);"></span>
+          </div>
+        </div>
+      </section>
 
       <section class="panel">
         <h2>1. 输入短剧需求</h2>

@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'ai_short_drama_state_v1';
+const PROVIDER_KEY = 'ai_short_drama_provider_v1';
 
 function bind(id) {
   return document.getElementById(id);
@@ -21,13 +22,27 @@ function loadState() {
   }
 }
 
+function loadProvider() {
+  try {
+    return localStorage.getItem(PROVIDER_KEY) || 'qwen';
+  } catch (err) {
+    return 'qwen';
+  }
+}
+
+function saveProvider(provider) {
+  localStorage.setItem(PROVIDER_KEY, provider);
+}
+
 const state = loadState();
+let currentProvider = loadProvider();
 
 let relationshipNetwork = null;
 let timelineSortable = null;
 let selectedRelationIndex = null;
 let draftRelationNodes = [];
 let videoPollTimer = null;
+let providersList = [];
 const VIDEO_POLL_INTERVAL_MS = 15000;
 
 function saveState() {
@@ -47,6 +62,56 @@ function updateOutput(id, text) {
 
 function hasDataForExport() {
   return Boolean(state.story_card || state.workshop || state.storyboard);
+}
+
+async function loadProviders() {
+  try {
+    const data = await fetchJson('/api/providers', { method: 'GET' });
+    if (data.ok) {
+      providersList = data.providers;
+      renderProviderSelector();
+    }
+  } catch (err) {
+    console.error('Failed to load providers:', err);
+  }
+}
+
+function renderProviderSelector() {
+  const selector = bind('provider-selector');
+  if (!selector) {
+    return;
+  }
+
+  selector.innerHTML = providersList.map(p => `
+    <option value="${p.id}" ${p.id === currentProvider ? 'selected' : ''} ${!p.has_api_key ? 'disabled' : ''}>
+      ${p.name} ${!p.has_api_key ? '(未配置API Key)' : ''} ${p.is_default ? '(默认)' : ''}
+    </option>
+  `).join('');
+
+  selector.addEventListener('change', (e) => {
+    const newProvider = e.target.value;
+    const provider = providersList.find(p => p.id === newProvider);
+    if (provider && provider.has_api_key) {
+      currentProvider = newProvider;
+      saveProvider(currentProvider);
+      updateProviderDisplay();
+    } else if (provider && !provider.has_api_key) {
+      alert(`请先在 .env 文件中配置 ${provider.name} 的 API Key`);
+      selector.value = currentProvider;
+    }
+  });
+
+  updateProviderDisplay();
+}
+
+function updateProviderDisplay() {
+  const display = bind('provider-display');
+  if (display) {
+    const provider = providersList.find(p => p.id === currentProvider);
+    if (provider) {
+      display.textContent = `当前模型: ${provider.name} (${provider.model})`;
+    }
+  }
 }
 
 function getVideoState() {
@@ -135,11 +200,11 @@ function startVideoPolling() {
   }, VIDEO_POLL_INTERVAL_MS);
 }
 
-async function runStage(stage, payload) {
+async function runStage(stage, payload, provider = null) {
   const resp = await fetch('/api/agent/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stage, payload }),
+    body: JSON.stringify({ stage, payload, provider: provider || currentProvider }),
   });
   return resp.json();
 }
@@ -410,6 +475,68 @@ function bindWorkshopActions() {
       state.story_card = data.result.story_card;
       saveState();
       updateOutput('story-output', pretty(data.result));
+    });
+  }
+
+  const btnStoryCompare = bind('btn-story-compare');
+  if (btnStoryCompare) {
+    btnStoryCompare.addEventListener('click', async () => {
+      const payload = {
+        idea: bind('idea')?.value.trim() || '',
+        theme: bind('theme')?.value.trim() || '',
+        tone: bind('tone')?.value.trim() || '',
+        structure: bind('structure')?.value.trim() || '',
+      };
+
+      const availableProviders = providersList.filter(p => p.has_api_key);
+      if (availableProviders.length < 2) {
+        alert('至少需要配置两个模型的 API Key 才能进行对比');
+        return;
+      }
+
+      const comparePanel = bind('compare-panel');
+      const compareResults = bind('compare-results');
+      comparePanel.style.display = 'block';
+      compareResults.innerHTML = '<p class="hint">正在对比各模型生成结果...</p>';
+
+      const data = await fetchJson('/api/agent/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stage: 'story_engine',
+          payload: payload,
+          providers: availableProviders.map(p => p.id)
+        }),
+      });
+
+      if (!data.ok) {
+        compareResults.innerHTML = `<p class="hint" style="color:red;">错误: ${data.error}</p>`;
+        return;
+      }
+
+      let html = '';
+      for (const [providerId, result] of Object.entries(data.results)) {
+        const provider = providersList.find(p => p.id === providerId);
+        const providerName = provider ? provider.name : providerId;
+        html += `
+          <div class="panel soft">
+            <h3>${providerName}</h3>
+            <pre style="max-height:300px; overflow:auto; font-size:12px;">${JSON.stringify(result, null, 2)}</pre>
+          </div>
+        `;
+      }
+
+      if (Object.keys(data.errors).length > 0) {
+        html += '<div class="panel" style="background:#fff3cd;"><h3>错误</h3><ul>';
+        for (const [providerId, error] of Object.entries(data.errors)) {
+          const provider = providersList.find(p => p.id === providerId);
+          const providerName = provider ? provider.name : providerId;
+          html += `<li><strong>${providerName}:</strong> ${error}</li>`;
+        }
+        html += '</ul></div>';
+      }
+
+      compareResults.innerHTML = html;
     });
   }
 
@@ -701,7 +828,7 @@ function bindVideoActions() {
   const btnScript = bind('btn-video-script');
   if (btnScript) {
     btnScript.addEventListener('click', async () => {
-      updateOutput('video-script-output', '正在让千问生成短剧脚本...');
+      updateOutput('video-script-output', '正在生成短剧脚本...');
 
       const payload = {
         idea: bind('video-idea')?.value.trim() || '',
@@ -714,7 +841,7 @@ function bindVideoActions() {
       const data = await fetchJson('/api/video/script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload }),
+        body: JSON.stringify({ payload, provider: currentProvider }),
       });
 
       if (!data.ok) {
@@ -815,3 +942,4 @@ bindExportActions();
 bindVideoActions();
 restoreOutputsOnPageLoad();
 refreshVisualEditors();
+loadProviders();

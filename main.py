@@ -4,6 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+import warnings
 
 import requests
 from dotenv import load_dotenv
@@ -16,6 +17,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
 
 
+warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 load_dotenv()
 
 
@@ -27,6 +29,52 @@ QWEN_BASE_URL = os.getenv(
 WAN_MODEL = os.getenv("WAN_MODEL", "wan2.6-t2v")
 WAN_BASE_URL = os.getenv("WAN_BASE_URL", "https://dashscope.aliyuncs.com/api/v1")
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", "").strip()
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
+CLAUDE_BASE_URL = os.getenv("CLAUDE_BASE_URL", "https://api.anthropic.com/v1")
+
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "").strip()
+ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4")
+ZHIPU_BASE_URL = os.getenv("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+
+DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "qwen")
+
+
+MODEL_PROVIDERS = {
+    "qwen": {
+        "name": "千问 (Qwen)",
+        "api_key": DASHSCOPE_API_KEY,
+        "model": QWEN_MODEL,
+        "base_url": QWEN_BASE_URL,
+        "type": "openai_compatible"
+    },
+    "openai": {
+        "name": "OpenAI (GPT)",
+        "api_key": OPENAI_API_KEY,
+        "model": OPENAI_MODEL,
+        "base_url": OPENAI_BASE_URL,
+        "type": "openai_compatible"
+    },
+    "claude": {
+        "name": "Claude (Anthropic)",
+        "api_key": CLAUDE_API_KEY,
+        "model": CLAUDE_MODEL,
+        "base_url": CLAUDE_BASE_URL,
+        "type": "anthropic"
+    },
+    "zhipu": {
+        "name": "智谱 AI (GLM)",
+        "api_key": ZHIPU_API_KEY,
+        "model": ZHIPU_MODEL,
+        "base_url": ZHIPU_BASE_URL,
+        "type": "openai_compatible"
+    }
+}
+
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -35,6 +83,7 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 class AgentRequest:
     stage: str
     payload: Dict[str, Any]
+    provider: str = DEFAULT_PROVIDER
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -57,53 +106,130 @@ def _extract_json(text: str) -> Dict[str, Any]:
     return json.loads(match.group(0))
 
 
-def _call_qwen_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-    if not DASHSCOPE_API_KEY:
-        raise RuntimeError("DASHSCOPE_API_KEY is missing in .env")
+def _call_provider_json(provider: str, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    provider_config = MODEL_PROVIDERS.get(provider)
+    if not provider_config:
+        raise ValueError(f"Unknown provider: {provider}")
+    
+    if not provider_config["api_key"]:
+        raise RuntimeError(f"{provider_config['name']} API key is missing in .env")
+    
+    if provider_config["type"] == "anthropic":
+        return _call_anthropic_json(provider_config, system_prompt, user_prompt)
+    else:
+        return _call_openai_compatible_json(provider_config, system_prompt, user_prompt)
 
-    url = f"{QWEN_BASE_URL}/chat/completions"
+
+def _call_provider_text(provider: str, system_prompt: str, user_prompt: str) -> str:
+    provider_config = MODEL_PROVIDERS.get(provider)
+    if not provider_config:
+        raise ValueError(f"Unknown provider: {provider}")
+    
+    if not provider_config["api_key"]:
+        raise RuntimeError(f"{provider_config['name']} API key is missing in .env")
+    
+    if provider_config["type"] == "anthropic":
+        return _call_anthropic_text(provider_config, system_prompt, user_prompt)
+    else:
+        return _call_openai_compatible_text(provider_config, system_prompt, user_prompt)
+
+
+def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    url = f"{provider_config['base_url']}/chat/completions"
     headers = {
-        "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
+        "Authorization": f"Bearer {provider_config['api_key']}",
         "Content-Type": "application/json",
     }
     body = {
-        "model": QWEN_MODEL,
+        "model": provider_config["model"],
         "temperature": 0.7,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
     }
-
-    response = requests.post(url, headers=headers, json=body, timeout=60)
+    
+    response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
     response.raise_for_status()
     data = response.json()
     content = data["choices"][0]["message"]["content"]
     return _extract_json(content)
 
 
-def _call_qwen_text(system_prompt: str, user_prompt: str) -> str:
-    if not DASHSCOPE_API_KEY:
-        raise RuntimeError("DASHSCOPE_API_KEY is missing in .env")
-
-    url = f"{QWEN_BASE_URL}/chat/completions"
+def _call_openai_compatible_text(provider_config: Dict[str, Any], system_prompt: str, user_prompt: str) -> str:
+    url = f"{provider_config['base_url']}/chat/completions"
     headers = {
-        "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
+        "Authorization": f"Bearer {provider_config['api_key']}",
         "Content-Type": "application/json",
     }
     body = {
-        "model": QWEN_MODEL,
+        "model": provider_config["model"],
         "temperature": 0.8,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
     }
-
-    response = requests.post(url, headers=headers, json=body, timeout=60)
+    
+    response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
     response.raise_for_status()
     data = response.json()
     return data["choices"][0]["message"]["content"].strip()
+
+
+def _call_anthropic_json(provider_config: Dict[str, Any], system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    url = f"{provider_config['base_url']}/messages"
+    headers = {
+        "x-api-key": provider_config["api_key"],
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+    }
+    body = {
+        "model": provider_config["model"],
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "system": system_prompt,
+        "messages": [
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    
+    response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
+    response.raise_for_status()
+    data = response.json()
+    content = data["content"][0]["text"]
+    return _extract_json(content)
+
+
+def _call_anthropic_text(provider_config: Dict[str, Any], system_prompt: str, user_prompt: str) -> str:
+    url = f"{provider_config['base_url']}/messages"
+    headers = {
+        "x-api-key": provider_config["api_key"],
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+    }
+    body = {
+        "model": provider_config["model"],
+        "temperature": 0.8,
+        "max_tokens": 4096,
+        "system": system_prompt,
+        "messages": [
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    
+    response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
+    response.raise_for_status()
+    data = response.json()
+    return data["content"][0]["text"].strip()
+
+
+def _call_qwen_json(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    return _call_provider_json("qwen", system_prompt, user_prompt)
+
+
+def _call_qwen_text(system_prompt: str, user_prompt: str) -> str:
+    return _call_provider_text("qwen", system_prompt, user_prompt)
 
 
 def _video_script_prompt(payload: Dict[str, Any]) -> str:
@@ -155,7 +281,7 @@ def _create_video_task(payload: Dict[str, Any]) -> Dict[str, Any]:
         },
     }
 
-    response = requests.post(url, headers=headers, json=body, timeout=60)
+    response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
     response.raise_for_status()
     return response.json()
 
@@ -166,7 +292,7 @@ def _query_video_task(task_id: str) -> Dict[str, Any]:
 
     url = f"{WAN_BASE_URL}/tasks/{task_id}"
     headers = {"Authorization": f"Bearer {DASHSCOPE_API_KEY}"}
-    response = requests.get(url, headers=headers, timeout=60)
+    response = requests.get(url, headers=headers, timeout=60, verify=False)
     response.raise_for_status()
     return response.json()
 
@@ -554,40 +680,107 @@ def video_lab() -> str:
     return render_template("video_lab.html")
 
 
+@app.get("/api/providers")
+def get_providers():
+    providers_list = []
+    for key, config in MODEL_PROVIDERS.items():
+        providers_list.append({
+            "id": key,
+            "name": config["name"],
+            "model": config["model"],
+            "has_api_key": bool(config["api_key"]),
+            "is_default": key == DEFAULT_PROVIDER
+        })
+    return jsonify({"ok": True, "providers": providers_list})
+
+
+@app.post("/api/agent/compare")
+def compare_providers():
+    req_json = request.get_json(silent=True) or {}
+    stage = req_json.get("stage")
+    payload = req_json.get("payload", {})
+    providers = req_json.get("providers", [])
+
+    if not providers:
+        return jsonify({"error": "No providers specified for comparison."}), 400
+
+    results = {}
+    errors = {}
+
+    for provider in providers:
+        try:
+            if stage == "story_engine":
+                result = _call_provider_json(
+                    provider,
+                    "你是专业短剧编剧策划，擅长结构化输出。",
+                    _story_engine_prompt(payload),
+                )
+            elif stage == "workshop":
+                result = _call_provider_json(
+                    provider,
+                    "你是专业短剧编剧，擅长角色与情节构建，并做一致性检查。",
+                    _workshop_prompt(payload),
+                )
+            elif stage == "storyboard":
+                result = _call_provider_json(
+                    provider,
+                    "你是分镜导演，擅长把剧情拆成可拍摄镜头。",
+                    _storyboard_prompt(payload),
+                )
+            else:
+                continue
+
+            results[provider] = result
+        except Exception as e:
+            errors[provider] = str(e)
+
+    return jsonify({
+        "ok": True,
+        "stage": stage,
+        "results": results,
+        "errors": errors
+    })
+
+
 @app.post("/api/agent/run")
 def run_agent_stage():
     req_json = request.get_json(silent=True) or {}
     stage = req_json.get("stage")
     payload = req_json.get("payload", {})
+    provider = req_json.get("provider", DEFAULT_PROVIDER)
 
     if stage not in {"story_engine", "workshop", "storyboard", "command", "export"}:
         return jsonify({"error": "Unsupported stage."}), 400
 
     try:
         if stage == "story_engine":
-            result = _call_qwen_json(
+            result = _call_provider_json(
+                provider,
                 "你是专业短剧编剧策划，擅长结构化输出。",
                 _story_engine_prompt(payload),
             )
         elif stage == "workshop":
-            result = _call_qwen_json(
+            result = _call_provider_json(
+                provider,
                 "你是专业短剧编剧，擅长角色与情节构建，并做一致性检查。",
                 _workshop_prompt(payload),
             )
         elif stage == "storyboard":
-            result = _call_qwen_json(
+            result = _call_provider_json(
+                provider,
                 "你是分镜导演，擅长把剧情拆成可拍摄镜头。",
                 _storyboard_prompt(payload),
             )
         elif stage == "command":
-            result = _call_qwen_json(
+            result = _call_provider_json(
+                provider,
                 "你是编剧助手，负责执行自然语言编辑命令并保持一致性。",
                 _command_prompt(payload),
             )
         else:
             result = _export_markdown(payload)
 
-        return jsonify({"ok": True, "stage": stage, "result": result})
+        return jsonify({"ok": True, "stage": stage, "provider": provider, "result": result})
     except requests.HTTPError as e:
         detail: Optional[str] = None
         if e.response is not None:
@@ -633,13 +826,15 @@ def export_pdf():
 def generate_video_script():
     req_json = request.get_json(silent=True) or {}
     payload = req_json.get("payload", req_json)
+    provider = req_json.get("provider", DEFAULT_PROVIDER)
 
     try:
-        script = _call_qwen_text(
+        script = _call_provider_text(
+            provider,
             "你是电影短剧导演和提示词工程师，擅长输出可直接用于视频生成的文本。",
             _video_script_prompt(payload),
         )
-        return jsonify({"ok": True, "script": script})
+        return jsonify({"ok": True, "script": script, "provider": provider})
     except requests.HTTPError as e:
         detail: Optional[str] = None
         if e.response is not None:
