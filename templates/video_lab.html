@@ -52,7 +52,7 @@
             <input id="video-genre" placeholder="题材，例如：都市悬疑" />
             <input id="video-roles" placeholder="人物，例如：外卖员阿城、神秘女孩、交警" />
             <input id="video-style" placeholder="风格，例如：电影感、冷调、快剪" />
-            <input id="video-duration" type="number" min="5" max="10" value="10" placeholder="时长秒数" />
+            <input id="video-duration" type="number" min="1" max="16" value="5" placeholder="单段时长（秒，1-16）" />
             <button id="btn-video-script">生成短剧脚本+视频提示词</button>
           </div>
         </div>
@@ -64,19 +64,31 @@
         <div class="grid two">
           <textarea id="video-prompt" placeholder="可编辑视频提示词，建议保留脚本生成结果中的提示词"></textarea>
           <div class="mini-form">
-            <input id="video-model" value="wan2.6-t2v" placeholder="模型，例如：wan2.6-t2v" />
-            <input id="video-size" value="1280*720" placeholder="分辨率，例如：1280*720" />
-            <input id="video-duration-task" type="number" min="5" max="10" value="10" placeholder="视频时长" />
+            <input id="video-model" value="viduq3-turbo" placeholder="模型，例如：viduq3-turbo" />
+            <select id="video-size">
+              <option value="960*540">540p (960*540)</option>
+              <option value="1280*720" selected>720p (1280*720)</option>
+              <option value="1920*1080">1080p (1920*1080)</option>
+            </select>
+            <input id="video-duration-task" type="number" min="1" max="16" value="5" placeholder="单段时长（秒，1-16）" />
+            <input id="video-image-url" placeholder="图生视频首帧URL（仅图生时填写）" />
+            <input id="video-start-image-url" placeholder="首尾帧模式：首帧URL（可选）" />
+            <input id="video-end-image-url" placeholder="首尾帧模式：尾帧URL（可选）" />
+            <input id="video-total-duration" type="number" min="5" value="10" placeholder="总时长（秒，可>10 则自动拆段）" />
+            <input id="video-filename-prefix" placeholder="下载文件名前缀，例如：my_drama" />
             <label class="hint" style="display:flex; align-items:center; gap:8px; margin:0;">
               <input id="video-auto-poll" type="checkbox" checked style="width:auto;" />
               自动轮询（每15秒）
             </label>
             <button id="btn-video-create">创建视频任务</button>
+            <button id="btn-video-create-long">创建长视频拆段任务</button>
             <button id="btn-video-refresh">查询任务状态</button>
             <button id="btn-video-stop-poll">停止自动轮询</button>
           </div>
         </div>
         <pre id="video-task-output" class="output"></pre>
+        <pre id="video-long-output" class="output"></pre>
+        <div id="video-long-segments" class="panel soft" style="margin-top:12px; display:none;"></div>
         <div id="video-result-wrap" class="panel soft" style="display:none; margin-top:12px;">
           <h3>3. 生成结果</h3>
           <video id="video-result-player" controls style="width:100%; border-radius:12px;"></video>

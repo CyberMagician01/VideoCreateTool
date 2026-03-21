@@ -16,6 +16,30 @@
     <div class="bg-shape bg-shape-1"></div>
     <div class="bg-shape bg-shape-2"></div>
 
+    <button id="btn-project-drawer" class="project-drawer-toggle" title="管理项目" aria-label="管理项目">
+      项
+    </button>
+
+    <aside id="project-drawer" class="project-drawer" aria-hidden="true">
+      <div class="project-drawer-head">
+        <h3>项目管理</h3>
+        <button id="btn-project-drawer-close" class="project-drawer-close">关闭</button>
+      </div>
+
+      <div class="project-drawer-tools">
+        <button id="btn-new-project">新建项目</button>
+        <button id="btn-delete-project" class="danger">删除当前项目</button>
+      </div>
+
+      <div id="project-current-meta" class="project-current-meta">
+        <p class="hint">当前项目信息将在这里显示。</p>
+      </div>
+
+      <div id="project-save-status" class="project-save-status hint"></div>
+
+      <div id="project-list" class="project-list"></div>
+    </aside>
+
     <main class="container">
       <nav class="top-nav">
         <a href="/" class="brand">短剧智能体</a>
@@ -29,7 +53,7 @@
 
       <header class="hero compact">
         <h1>创作工坊</h1>
-        <p>完成从灵感到剧情节点的核心生成，数据会自动保存在浏览器。</p>
+        <p>完成从灵感到剧情节点的核心生成，数据会自动按项目保存。</p>
       </header>
 
       <section class="panel soft">

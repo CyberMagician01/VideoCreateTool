@@ -1,32 +1,24 @@
 const STORAGE_KEY = 'ai_short_drama_state_v1';
 const PROVIDER_KEY = 'ai_short_drama_provider_v1';
+const CURRENT_PROJECT_KEY = 'ai_short_drama_current_project_id_v1';
+const AUTO_SAVE_DELAY_MS = 3000;
+
+const EMPTY_STATE = {
+  story_card: null,
+  workshop: null,
+  storyboard: null,
+  video_lab: null,
+};
 
 function bind(id) {
   return document.getElementById(id);
 }
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return { story_card: null, workshop: null, storyboard: null };
-    }
-    const parsed = JSON.parse(raw);
-    return {
-      story_card: parsed.story_card || null,
-      workshop: parsed.workshop || null,
-      storyboard: parsed.storyboard || null,
-    };
-  } catch (err) {
-    return { story_card: null, workshop: null, storyboard: null };
-  }
-}
-
 function loadProvider() {
   try {
-    return localStorage.getItem(PROVIDER_KEY) || 'qwen';
+    return localStorage.getItem(PROVIDER_KEY) || 'qiniu';
   } catch (err) {
-    return 'qwen';
+    return 'qiniu';
   }
 }
 
@@ -34,8 +26,27 @@ function saveProvider(provider) {
   localStorage.setItem(PROVIDER_KEY, provider);
 }
 
-const state = loadState();
+function loadCurrentProjectId() {
+  try {
+    return localStorage.getItem(CURRENT_PROJECT_KEY) || '';
+  } catch (err) {
+    return '';
+  }
+}
+
+function saveCurrentProjectId(projectId) {
+  localStorage.setItem(CURRENT_PROJECT_KEY, String(projectId || ''));
+}
+
+const state = { ...EMPTY_STATE };
 let currentProvider = loadProvider();
+let currentProjectId = loadCurrentProjectId();
+let currentProjectMeta = null;
+let projectsCache = [];
+let saveDebounceTimer = null;
+let stateDirty = false;
+let projectSaveInFlight = false;
+let projectDrawerOpen = false;
 
 let relationshipNetwork = null;
 let timelineSortable = null;
@@ -45,8 +56,100 @@ let videoPollTimer = null;
 let providersList = [];
 const VIDEO_POLL_INTERVAL_MS = 15000;
 
+function setAutoSaveStatus(text) {
+  const target = bind('project-save-status');
+  if (target) {
+    target.textContent = text;
+  }
+}
+
+function formatTimeHHmmss(dateObj = new Date()) {
+  const h = String(dateObj.getHours()).padStart(2, '0');
+  const m = String(dateObj.getMinutes()).padStart(2, '0');
+  const s = String(dateObj.getSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+function normalizeState(input) {
+  const parsed = (input && typeof input === 'object') ? input : {};
+  return {
+    story_card: parsed.story_card || null,
+    workshop: parsed.workshop || null,
+    storyboard: parsed.storyboard || null,
+    video_lab: parsed.video_lab || null,
+  };
+}
+
+function applyState(newState) {
+  const normalized = normalizeState(newState);
+  state.story_card = normalized.story_card;
+  state.workshop = normalized.workshop;
+  state.storyboard = normalized.storyboard;
+  state.video_lab = normalized.video_lab;
+}
+
+function markStateDirty() {
+  stateDirty = true;
+  scheduleAutoSave();
+}
+
+async function saveProjectStateNow() {
+  if (!currentProjectId || !stateDirty || projectSaveInFlight) {
+    return;
+  }
+  projectSaveInFlight = true;
+  try {
+    const data = await fetchJson(`/api/projects/${currentProjectId}/state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        state,
+        last_provider: currentProvider,
+        cover_image: currentProjectMeta?.cover_image || '',
+      }),
+    });
+    if (!data.ok) {
+      throw new Error(data.error || 'auto save failed');
+    }
+    stateDirty = false;
+    setAutoSaveStatus(`自动保存成功（${formatTimeHHmmss()}）`);
+  } catch (err) {
+    console.error('auto save failed', err);
+  } finally {
+    projectSaveInFlight = false;
+  }
+}
+
+function scheduleAutoSave() {
+  if (!currentProjectId) {
+    return;
+  }
+  if (saveDebounceTimer) {
+    clearTimeout(saveDebounceTimer);
+  }
+  saveDebounceTimer = setTimeout(() => {
+    saveProjectStateNow().catch((err) => {
+      console.error('saveProjectStateNow failed', err);
+    });
+  }, AUTO_SAVE_DELAY_MS);
+}
+
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  markStateDirty();
+}
+
+function clearOutputsByPage() {
+  const ids = [
+    'story-output',
+    'workshop-output',
+    'storyboard-output',
+    'command-output',
+    'export-output',
+    'video-script-output',
+    'video-task-output',
+    'video-long-output',
+  ];
+  ids.forEach((id) => updateOutput(id, ''));
 }
 
 function pretty(obj) {
@@ -62,6 +165,253 @@ function updateOutput(id, text) {
 
 function hasDataForExport() {
   return Boolean(state.story_card || state.workshop || state.storyboard);
+}
+
+function renderProjectMeta() {
+  const panel = bind('project-current-meta');
+  if (!panel) {
+    return;
+  }
+  if (!currentProjectMeta) {
+    panel.innerHTML = '<p class="hint">当前项目信息将在这里显示。</p>';
+    return;
+  }
+  panel.innerHTML = `
+    <div><strong>${currentProjectMeta.name || '未命名项目'}</strong></div>
+    <div>创建人：${currentProjectMeta.creator || '-'}</div>
+    <div>描述：${currentProjectMeta.description || '-'}</div>
+    <div>创建时间：${currentProjectMeta.created_at || '-'}</div>
+  `;
+}
+
+function getCoverHtml(project) {
+  if (project.cover_image) {
+    return `<img class="project-cover" src="${project.cover_image}" alt="cover" />`;
+  }
+  return '<div class="project-cover placeholder">空白封面</div>';
+}
+
+function renderProjectList() {
+  const list = bind('project-list');
+  if (!list) {
+    return;
+  }
+  if (!projectsCache.length) {
+    list.innerHTML = '<p class="hint">暂无项目</p>';
+    return;
+  }
+  list.innerHTML = projectsCache
+    .map((p) => `
+      <div class="project-card ${String(p.id) === String(currentProjectId) ? 'active' : ''}" data-project-id="${p.id}">
+        ${getCoverHtml(p)}
+        <div>
+          <div class="project-card-title">${p.name || '未命名项目'}</div>
+          <div class="project-card-meta">创建人：${p.creator || '-'}</div>
+          <div class="project-card-meta">${p.updated_at || ''}</div>
+        </div>
+      </div>
+    `)
+    .join('');
+
+  const cards = list.querySelectorAll('.project-card');
+  cards.forEach((card) => {
+    card.addEventListener('click', async () => {
+      const targetId = card.getAttribute('data-project-id');
+      if (!targetId || String(targetId) === String(currentProjectId)) {
+        return;
+      }
+      await switchProject(targetId);
+    });
+  });
+}
+
+async function loadProjects() {
+  const data = await fetchJson('/api/projects', { method: 'GET' });
+  if (!data.ok) {
+    throw new Error(data.error || '加载项目失败');
+  }
+  projectsCache = data.projects || [];
+  renderProjectList();
+  return projectsCache;
+}
+
+function updateDrawerOpen(open) {
+  projectDrawerOpen = Boolean(open);
+  const drawer = bind('project-drawer');
+  if (!drawer) {
+    return;
+  }
+  drawer.classList.toggle('open', projectDrawerOpen);
+  drawer.setAttribute('aria-hidden', projectDrawerOpen ? 'false' : 'true');
+}
+
+async function ensureProjectExistsAndLoad() {
+  let projects = await loadProjects();
+  if (!projects.length) {
+    const created = await fetchJson('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '未命名项目',
+        creator: '',
+        description: '',
+      }),
+    });
+    if (!created.ok) {
+      throw new Error(created.error || '创建默认项目失败');
+    }
+    projects = await loadProjects();
+  }
+
+  const legacy = localStorage.getItem(STORAGE_KEY);
+  if (legacy && projects.length === 1 && projects[0].name === '未命名项目') {
+    try {
+      const legacyState = JSON.parse(legacy);
+      const migrated = await fetchJson('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: '迁移项目',
+          creator: '本地迁移',
+          description: '从旧 localStorage 自动迁移',
+          state: legacyState,
+          last_provider: currentProvider,
+        }),
+      });
+      if (migrated.ok && migrated.project?.id) {
+        currentProjectId = String(migrated.project.id);
+        saveCurrentProjectId(currentProjectId);
+      }
+      localStorage.removeItem(STORAGE_KEY);
+      projects = await loadProjects();
+    } catch (err) {
+      console.error('legacy migration failed', err);
+    }
+  }
+
+  if (!currentProjectId || !projects.some((p) => String(p.id) === String(currentProjectId))) {
+    currentProjectId = String(projects[0].id);
+    saveCurrentProjectId(currentProjectId);
+  }
+
+  await switchProject(currentProjectId, { skipSaveCurrent: true });
+}
+
+async function switchProject(projectId, opts = {}) {
+  const options = { skipSaveCurrent: false, ...opts };
+  if (!options.skipSaveCurrent) {
+    await saveProjectStateNow();
+  }
+
+  const data = await fetchJson(`/api/projects/${projectId}`, { method: 'GET' });
+  if (!data.ok) {
+    throw new Error(data.error || '加载项目失败');
+  }
+
+  currentProjectId = String(projectId);
+  saveCurrentProjectId(currentProjectId);
+  currentProjectMeta = data.project || null;
+  applyState(data.state || EMPTY_STATE);
+
+  if (currentProjectMeta?.last_provider) {
+    currentProvider = currentProjectMeta.last_provider;
+    saveProvider(currentProvider);
+  }
+
+  clearOutputsByPage();
+  restoreOutputsOnPageLoad();
+  refreshVisualEditors();
+  renderProjectMeta();
+  await loadProjects();
+}
+
+async function createProjectFromDialog() {
+  const name = window.prompt('请输入项目名称：', '新项目');
+  if (!name || !name.trim()) {
+    return;
+  }
+  const creator = window.prompt('请输入创建人：', '') || '';
+  const description = window.prompt('请输入项目描述：', '') || '';
+
+  const data = await fetchJson('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: name.trim(),
+      creator: creator.trim(),
+      description: description.trim(),
+      state: EMPTY_STATE,
+      last_provider: currentProvider,
+    }),
+  });
+  if (!data.ok) {
+    throw new Error(data.error || '新建项目失败');
+  }
+  await loadProjects();
+  if (data.project?.id) {
+    await switchProject(String(data.project.id));
+  }
+}
+
+async function deleteCurrentProject() {
+  if (!currentProjectId) {
+    return;
+  }
+  const ok = window.confirm('确认删除当前项目？此操作不可撤销。');
+  if (!ok) {
+    return;
+  }
+
+  const data = await fetchJson(`/api/projects/${currentProjectId}`, { method: 'DELETE' });
+  if (!data.ok) {
+    throw new Error(data.error || '删除项目失败');
+  }
+
+  projectsCache = data.projects || [];
+  renderProjectList();
+
+  const fallback = data.fallback_project;
+  if (fallback?.id) {
+    await switchProject(String(fallback.id), { skipSaveCurrent: true });
+  }
+}
+
+function bindProjectDrawerActions() {
+  const btnToggle = bind('btn-project-drawer');
+  const btnClose = bind('btn-project-drawer-close');
+  const btnNew = bind('btn-new-project');
+  const btnDelete = bind('btn-delete-project');
+
+  if (btnToggle) {
+    btnToggle.addEventListener('click', () => {
+      updateDrawerOpen(!projectDrawerOpen);
+    });
+  }
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
+      updateDrawerOpen(false);
+    });
+  }
+  if (btnNew) {
+    btnNew.addEventListener('click', async () => {
+      try {
+        await createProjectFromDialog();
+      } catch (err) {
+        console.error(err);
+        alert(`新建项目失败: ${err.message}`);
+      }
+    });
+  }
+  if (btnDelete) {
+    btnDelete.addEventListener('click', async () => {
+      try {
+        await deleteCurrentProject();
+      } catch (err) {
+        console.error(err);
+        alert(`删除项目失败: ${err.message}`);
+      }
+    });
+  }
 }
 
 async function loadProviders() {
@@ -82,6 +432,17 @@ function renderProviderSelector() {
     return;
   }
 
+  if (!providersList.length) {
+    selector.innerHTML = '';
+    return;
+  }
+
+  if (!providersList.some((p) => p.id === currentProvider && p.has_api_key)) {
+    const firstAvailable = providersList.find((p) => p.has_api_key) || providersList[0];
+    currentProvider = firstAvailable.id;
+    saveProvider(currentProvider);
+  }
+
   selector.innerHTML = providersList.map(p => `
     <option value="${p.id}" ${p.id === currentProvider ? 'selected' : ''} ${!p.has_api_key ? 'disabled' : ''}>
       ${p.name} ${!p.has_api_key ? '(未配置API Key)' : ''} ${p.is_default ? '(默认)' : ''}
@@ -94,9 +455,21 @@ function renderProviderSelector() {
     if (provider && provider.has_api_key) {
       currentProvider = newProvider;
       saveProvider(currentProvider);
+      if (currentProjectMeta) {
+        currentProjectMeta.last_provider = currentProvider;
+      }
+      if (currentProjectId) {
+        fetchJson(`/api/projects/${currentProjectId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ last_provider: currentProvider }),
+        }).catch((err) => {
+          console.error('update last_provider failed', err);
+        });
+      }
       updateProviderDisplay();
     } else if (provider && !provider.has_api_key) {
-      alert(`请先在 .env 文件中配置 ${provider.name} 的 API Key`);
+      alert(`请先在 .env 文件中配置 ${provider.name} 的凭证（如 AK/SK）`);
       selector.value = currentProvider;
     }
   });
@@ -124,6 +497,9 @@ function getVideoState() {
       video_url: '',
       auto_poll: true,
       last_check_time: '',
+      long_segments: [],
+      total_duration: 0,
+      filename_prefix: '',
     };
   }
   return state.video_lab;
@@ -161,9 +537,9 @@ async function queryVideoTaskOnce({ silent = false } = {}) {
     return;
   }
 
-  const output = data.result?.output || {};
-  video.task_status = output.task_status || 'UNKNOWN';
-  video.video_url = output.video_url || output.url || '';
+  const output = data.result?.output || data.result || {};
+  video.task_status = output.task_status || output.status || 'UNKNOWN';
+  video.video_url = output.video_url || output.url || output?.result?.video?.url || '';
   video.last_check_time = new Date().toLocaleString();
   saveState();
 
@@ -787,6 +1163,10 @@ function restoreOutputsOnPageLoad() {
     renderVideoResult(video.video_url);
   }
 
+  if (bind('video-long-output') && video.long_segments && video.long_segments.length) {
+    updateOutput('video-long-output', '已检测到长视频拆段任务，可在下方列表中逐段查询和播放。');
+  }
+
   if (
     bind('video-auto-poll') &&
     video.task_id &&
@@ -795,6 +1175,8 @@ function restoreOutputsOnPageLoad() {
   ) {
     startVideoPolling();
   }
+
+  renderLongSegmentsList();
 }
 
 function renderVideoResult(url) {
@@ -807,6 +1189,122 @@ function renderVideoResult(url) {
   wrap.style.display = 'block';
   player.src = url;
   text.textContent = `视频链接(24小时内有效): ${url}`;
+  captureProjectCoverFromVideo(url).catch((err) => {
+    console.error('capture cover failed', err);
+  });
+}
+
+async function captureProjectCoverFromVideo(url) {
+  if (!url || !currentProjectId) {
+    return;
+  }
+
+  const video = document.createElement('video');
+  video.crossOrigin = 'anonymous';
+  video.muted = true;
+  video.preload = 'auto';
+  video.src = url;
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('cover capture timeout')), 12000);
+    video.addEventListener('loadeddata', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+    video.addEventListener('error', () => {
+      clearTimeout(timer);
+      reject(new Error('video load failed'));
+    }, { once: true });
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, video.videoWidth || 320);
+  canvas.height = Math.max(1, video.videoHeight || 180);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return;
+  }
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const cover = canvas.toDataURL('image/jpeg', 0.82);
+
+  currentProjectMeta = currentProjectMeta || {};
+  currentProjectMeta.cover_image = cover;
+
+  await fetchJson(`/api/projects/${currentProjectId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cover_image: cover,
+      last_provider: currentProvider,
+    }),
+  });
+
+  await loadProjects();
+  renderProjectMeta();
+}
+
+function renderLongSegmentsList() {
+  const video = getVideoState();
+  const box = bind('video-long-segments');
+  if (!box) {
+    return;
+  }
+
+  const segments = video.long_segments || [];
+  if (!segments.length) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+
+  box.style.display = 'block';
+
+  let html = '<h3>长视频拆段任务列表</h3>';
+  html += '<p class="hint">每一行是一段约10秒的视频，可以单独查询并播放。</p>';
+  html += '<ul class="segment-list">';
+  segments.forEach((seg) => {
+    const shortPrompt = String(seg.prompt || '').slice(0, 60);
+    html += `
+      <li style="margin-bottom:8px;">
+        <div><strong>第${seg.index}段</strong> · 时长 ${seg.duration} 秒 · Task ID: ${seg.task_id || '-'} · 状态: ${seg.task_status || 'PENDING'}</div>
+        <div style="font-size:12px; color:var(--muted);">提示词: ${shortPrompt}${seg.prompt && seg.prompt.length > 60 ? '…' : ''}</div>
+        ${seg.task_id ? `<button data-task-id="${seg.task_id}" data-index="${seg.index}" class="btn-seg-play">查询并播放这一段</button>` : ''}
+      </li>`;
+  });
+  html += '</ul>';
+
+  box.innerHTML = html;
+
+  const buttons = box.querySelectorAll('.btn-seg-play');
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const taskId = e.currentTarget.getAttribute('data-task-id');
+      const idx = e.currentTarget.getAttribute('data-index');
+      if (!taskId) {
+        return;
+      }
+      updateOutput('video-task-output', `正在查询第${idx}段任务 ${taskId} ...`);
+
+      try {
+        const data = await fetchJson(`/api/video/task/${taskId}`, { method: 'GET' });
+        if (!data.ok) {
+          updateOutput('video-task-output', `错误: ${data.error}\n${data.detail || ''}`);
+          return;
+        }
+
+        const output = data.result?.output || data.result || {};
+        const status = output.task_status || output.status || 'UNKNOWN';
+        const url = output.video_url || output.url || output?.result?.video?.url || '';
+
+        updateOutput('video-task-output', `第${idx}段任务 ${taskId}\n状态: ${status}`);
+        if (url) {
+          renderVideoResult(url);
+        }
+      } catch (err) {
+        updateOutput('video-task-output', `错误: ${err.message}`);
+      }
+    });
+  });
 }
 
 async function fetchJson(url, options) {
@@ -868,10 +1366,13 @@ function bindVideoActions() {
 
       const payload = {
         prompt: bind('video-prompt')?.value.trim() || '',
-        model: bind('video-model')?.value.trim() || 'wan2.6-t2v',
+        model: bind('video-model')?.value.trim() || 'viduq3-turbo',
         size: bind('video-size')?.value.trim() || '1280*720',
         duration: Number(bind('video-duration-task')?.value || 10),
         prompt_extend: true,
+        image_url: bind('video-image-url')?.value.trim() || '',
+        start_image_url: bind('video-start-image-url')?.value.trim() || '',
+        end_image_url: bind('video-end-image-url')?.value.trim() || '',
       };
 
       const data = await fetchJson('/api/video/create-task', {
@@ -885,11 +1386,11 @@ function bindVideoActions() {
         return;
       }
 
-      const output = data.result?.output || {};
+      const output = data.result?.output || data.result || {};
       const video = getVideoState();
       video.prompt = payload.prompt;
-      video.task_id = output.task_id || '';
-      video.task_status = output.task_status || 'PENDING';
+      video.task_id = output.task_id || output.request_id || '';
+      video.task_status = output.task_status || output.status || 'PENDING';
       video.video_url = '';
       video.last_check_time = '';
       video.auto_poll = Boolean(bind('video-auto-poll')?.checked);
@@ -903,6 +1404,78 @@ function bindVideoActions() {
           updateOutput('video-task-output', `错误: ${err.message}`);
           stopVideoPolling(false);
         });
+      }
+    });
+  }
+
+  const btnCreateLong = bind('btn-video-create-long');
+  if (btnCreateLong) {
+    btnCreateLong.addEventListener('click', async () => {
+      const basePrompt = bind('video-prompt')?.value.trim() || '';
+      const model = bind('video-model')?.value.trim() || 'viduq3-turbo';
+      const size = bind('video-size')?.value.trim() || '1280*720';
+      const totalDuration = Number(bind('video-total-duration')?.value || 0);
+      const segmentDuration = Number(bind('video-duration-task')?.value || 10);
+
+      if (!basePrompt) {
+        updateOutput('video-long-output', '请先填写视频提示词。');
+        return;
+      }
+      if (!totalDuration || totalDuration <= 0) {
+        updateOutput('video-long-output', '请填写大于0的总时长（秒）。');
+        return;
+      }
+      if (totalDuration <= 10) {
+        updateOutput('video-long-output', '总时长不大于10秒时，请直接使用“创建视频任务”按钮。');
+        return;
+      }
+
+      updateOutput('video-long-output', '正在创建长视频拆段任务...');
+
+      const payload = {
+        prompt: basePrompt,
+        model,
+        size,
+        image_url: bind('video-image-url')?.value.trim() || '',
+        start_image_url: bind('video-start-image-url')?.value.trim() || '',
+        end_image_url: bind('video-end-image-url')?.value.trim() || '',
+        total_duration: totalDuration,
+        segment_duration: segmentDuration,
+        prompt_extend: true,
+        provider: currentProvider,
+      };
+
+      try {
+        const data = await fetchJson('/api/video/create-long-task', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload }),
+        });
+
+        if (!data.ok) {
+          updateOutput('video-long-output', `错误: ${data.error}\n${data.detail || ''}`);
+          return;
+        }
+
+        const video = getVideoState();
+        video.long_segments = data.result?.segments || [];
+        video.total_duration = data.result?.total_duration || totalDuration;
+        video.filename_prefix = bind('video-filename-prefix')?.value.trim() || '';
+        saveState();
+
+        let text = `长视频拆段任务已创建。\n总时长: ${video.total_duration} 秒`; 
+        if (video.long_segments.length) {
+          text += `\n共拆分为 ${video.long_segments.length} 段：`;
+          video.long_segments.forEach((seg) => {
+            text += `\n- 第${seg.index}段: 时长 ${seg.duration} 秒, Task ID: ${seg.task_id || '-'}\n  提示词: ${String(seg.prompt || '').slice(0, 120)}...`;
+          });
+          text += '\n\n可以使用下方“查询任务状态”按 Task ID 查询单段状态，或在万相控制台查看任务详情。';
+        }
+
+        updateOutput('video-long-output', text);
+        renderLongSegmentsList();
+      } catch (err) {
+        updateOutput('video-long-output', `错误: ${err.message}`);
       }
     });
   }
@@ -936,10 +1509,43 @@ function bindVideoActions() {
   }
 }
 
-bindWorkshopActions();
-bindVisualActions();
-bindExportActions();
-bindVideoActions();
-restoreOutputsOnPageLoad();
-refreshVisualEditors();
-loadProviders();
+async function initProjectContext() {
+  try {
+    await ensureProjectExistsAndLoad();
+  } catch (err) {
+    console.error('init project context failed', err);
+  }
+}
+
+async function initApp() {
+  bindProjectDrawerActions();
+  bindWorkshopActions();
+  bindVisualActions();
+  bindExportActions();
+  bindVideoActions();
+
+  await initProjectContext();
+  restoreOutputsOnPageLoad();
+  refreshVisualEditors();
+  loadProviders();
+}
+
+window.addEventListener('beforeunload', () => {
+  if (!currentProjectId || !stateDirty) {
+    return;
+  }
+
+  const body = JSON.stringify({
+    state,
+    last_provider: currentProvider,
+    cover_image: currentProjectMeta?.cover_image || '',
+  });
+
+  try {
+    navigator.sendBeacon(`/api/projects/${currentProjectId}/state`, new Blob([body], { type: 'application/json' }));
+  } catch (err) {
+    console.error('sendBeacon save failed', err);
+  }
+});
+
+initApp();

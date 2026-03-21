@@ -6,7 +6,7 @@
   - 主页面：`templates/index.html`（导航入口）
   - 次级页面：`templates/studio.html`、`templates/visual.html`、`templates/export_center.html`
   - 公共资源：`static/app.js` + `static/style.css`
-- 模型：千问（Qwen），通过 `.env` 中的 `DASHSCOPE_API_KEY` 调用 DashScope OpenAI 兼容接口。
+- 模型：统一通过七牛云网关调用，后端使用 `.env` 中的 `QINIU_AK` + `QINIU_SK` 进行鉴权。
 
 ### 前端页面分层
 - 主页面（Home）：只承载产品简介与入口导航，保持简洁。
@@ -16,9 +16,9 @@
 - 视频实验室页（Video Lab）：短剧脚本生成 + 文生视频任务创建与状态查询。
 - 跨页面状态：使用浏览器 `localStorage` 存储 `story_card/workshop/storyboard`，页面切换不丢数据。
 
-## 2.5 视频生成流程（千问 + 万相）
+## 2.5 视频生成流程（七牛云网关）
 1. 在 `video-lab` 输入题材、设定、人物与风格。
-2. 调用 `POST /api/video/script`：由千问生成短剧脚本与视频提示词。
+2. 调用 `POST /api/video/script`：由七牛云网关上的文本模型生成短剧脚本与视频提示词。
 3. 调用 `POST /api/video/create-task`：提交文生视频任务（异步，返回 `task_id`）。
 4. 调用 `GET /api/video/task/<task_id>`：轮询任务状态。
   - 前端支持自动轮询（默认开启，15 秒/次），也支持手动停止。
@@ -30,7 +30,7 @@
 - 输入：一句话创意 + 可选主题/基调/结构模板偏好。
 - 后端处理：
   - 构建故事引擎提示词。
-  - 调用千问生成结构化 JSON。
+  - 调用七牛云网关文本模型生成结构化 JSON。
 - 输出：`story_card`，包括 logline、核心冲突、结构锚点、开场钩子、结局类型。
 
 ### 第二层：剧本工坊（workshop）
