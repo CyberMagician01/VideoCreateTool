@@ -45,7 +45,10 @@
       </section>
 
       <section class="panel">
-        <h2>1. 输入短剧需求</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h2>1. 输入短剧需求</h2>
+          <button id="btn-import-lab-info" class="secondary" style="padding: 6px 16px; font-size: 14px;">⚡ 从创作工坊一键导入文本设定</button>
+        </div>
         <div class="grid two">
           <textarea id="video-idea" placeholder="核心设定，例如：外卖员陷入时间循环，每次都要在5分钟内救下一个陌生人"></textarea>
           <div class="mini-form">
@@ -60,7 +63,10 @@
       </section>
 
       <section class="panel">
-        <h2>2. 提交视频生成任务</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h2>2. 提交视频生成任务</h2>
+          <button id="btn-import-lab-storyboard" class="secondary" style="padding: 6px 16px; font-size: 14px; border-color: var(--primary-color); color: var(--primary-color);">🎬 直接导入已生成分镜</button>
+        </div>
         <div class="grid two">
           <textarea id="video-prompt" placeholder="可编辑视频提示词，建议保留脚本生成结果中的提示词"></textarea>
           <div class="mini-form">

@@ -37,8 +37,17 @@
       <section class="panel">
         <div class="grid two viz-wrap no-top-line">
           <div>
-            <h2>角色关系图</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h2>角色关系图</h2>
+              <button id="btn-visual-undo" class="secondary" style="padding: 4px 12px; font-size: 14px;">撤销上一步</button>
+            </div>
             <div id="relationship-graph" class="viz-box"></div>
+            
+            <div class="grid two relation-editor" style="margin-bottom: 12px;">
+              <input id="new-char-name" placeholder="新角色名称" />
+              <button id="btn-char-add">添加独立角色</button>
+            </div>
+
             <div class="grid two relation-editor">
               <input id="rel-from-display" placeholder="起点角色（从图上选择）" readonly />
               <input id="rel-to-display" placeholder="终点角色（从图上选择）" readonly />

@@ -34,6 +34,55 @@
 
       <section class="panel">
         <h2>导出操作</h2>
+        
+        <div class="grid two" style="margin-bottom: 20px;">
+          <!-- 预览卡片 -->
+          <div class="document-preview-card" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; background: #fff;">
+            <div style="text-align: center; color: var(--primary-color); margin-bottom: 12px; font-weight: bold;">
+              📄 Word (.docx) 导出示意图
+            </div>
+            <div style="border: 1px dashed #ccc; padding: 10px; font-size: 10px; color: #666; background: #fdfdfd; height: 150px; overflow: hidden; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);">
+              <h3 style="margin: 0 0 5px; color: #333; font-size: 12px;">AI短剧项目导出</h3>
+              <h4 style="margin: 5px 0 2px; color: #555; font-size: 11px;">1. 故事卡</h4>
+              <p style="margin: 0;">Logline: [一句话故事梗概]</p>
+              <p style="margin: 0;">主题: [核心主题]</p>
+              <h4 style="margin: 5px 0 2px; color: #555; font-size: 11px;">2. 角色设定</h4>
+              <ul style="margin: 0; padding-left: 12px;"><li>角色A | 标签 | 动机</li></ul>
+              <h4 style="margin: 5px 0 2px; color: #555; font-size: 11px;">4. 分镜表</h4>
+              <table style="width: 100%; border-collapse: collapse; font-size: 9px; margin-top: 4px;">
+                <tr style="border-bottom: 1px solid #ddd;"><th>镜头</th><th>画面</th></tr>
+                <tr><td>S1</td><td>(分镜描述)</td></tr>
+              </table>
+            </div>
+          </div>
+
+          <div class="document-preview-card" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; background: #fff;">
+            <div style="text-align: center; color: var(--danger-color); margin-bottom: 12px; font-weight: bold;">
+              📕 PDF (.pdf) 导出示意图
+            </div>
+            <div style="border: 1px solid #ccc; padding: 10px; font-size: 10px; color: #555; background: #fff; height: 150px; overflow: hidden; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
+              <h3 style="margin: 0 0 5px; color: #222; font-size: 12px; text-align: center;">AI短剧项目导出</h3>
+              <div style="display: flex; gap: 8px;">
+                <div style="flex: 1;">
+                  <span style="font-weight:bold; font-size: 11px;">1. 故事卡</span><br>
+                  Logline...<br>基调...<br><br>
+                  <span style="font-weight:bold; font-size: 11px;">2. 角色设定</span><br>
+                  - 男主<br>- 女主<br>
+                </div>
+                <div style="flex: 1; border-left: 1px solid #eee; padding-left: 8px;">
+                   <span style="font-weight:bold; font-size: 11px;">4. 分镜表</span><br>
+                   S1 | 节点N1<br>
+                   景别: 中景<br>
+                   画面: 男主回头<br>
+                   提示词: ...<br>
+                   ---<br>
+                   S2 | 节点N1<br>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="grid three">
           <button id="btn-export">生成 Markdown 导出稿</button>
           <button id="btn-export-docx">下载 Word (.docx)</button>

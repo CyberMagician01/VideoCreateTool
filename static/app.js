@@ -52,6 +52,7 @@ let relationshipNetwork = null;
 let timelineSortable = null;
 let selectedRelationIndex = null;
 let draftRelationNodes = [];
+let visualUndoStack = [];
 let videoPollTimer = null;
 let providersList = [];
 const VIDEO_POLL_INTERVAL_MS = 15000;
@@ -150,6 +151,13 @@ function clearOutputsByPage() {
     'video-long-output',
   ];
   ids.forEach((id) => updateOutput(id, ''));
+
+  const wrap = bind('video-result-wrap');
+  const player = bind('video-result-player');
+  const text = bind('video-result-link');
+  if (wrap) wrap.style.display = 'none';
+  if (player) player.src = '';
+  if (text) text.textContent = '';
 }
 
 function pretty(obj) {
@@ -716,6 +724,29 @@ function renderRelationshipGraph() {
         return;
       }
 
+      if (params.nodes.length > 0) {
+        const nodeName = String(params.nodes[0]);
+        selectedRelationIndex = null;
+        
+        if (draftRelationNodes.length === 0 || draftRelationNodes.length === 2) {
+          draftRelationNodes = [nodeName];
+        } else {
+          // If we already have 1 selected node, append the new one as the second (if it's different)
+          if (draftRelationNodes[0] !== nodeName) {
+            draftRelationNodes.push(nodeName);
+          }
+        }
+
+        if (draftRelationNodes.length === 1) {
+          setRelationSelection(draftRelationNodes[0], '', '', '');
+          setRelationStatus(`已选择起点：${draftRelationNodes[0]}。请再选终点。`);
+        } else {
+          setRelationSelection(draftRelationNodes[0], draftRelationNodes[1], '关系', '');
+          setRelationStatus(`已选择关系端点：${draftRelationNodes[0]} -> ${draftRelationNodes[1]}`);
+        }
+        return;
+      }
+
       if (params.edges.length > 0) {
         const edgeId = String(params.edges[0]);
         const idx = Number(edgeId.replace('rel-', ''));
@@ -726,24 +757,6 @@ function renderRelationshipGraph() {
           setRelationSelection(rel.from, rel.to, rel.type || '', rel.tension || '');
           setRelationStatus(`已选中关系：${rel.from} -> ${rel.to}`);
           renderRelationshipGraph();
-        }
-        return;
-      }
-
-      if (params.nodes.length > 0) {
-        const nodeName = String(params.nodes[0]);
-        selectedRelationIndex = null;
-        draftRelationNodes.push(nodeName);
-        if (draftRelationNodes.length > 2) {
-          draftRelationNodes = draftRelationNodes.slice(-2);
-        }
-
-        if (draftRelationNodes.length === 1) {
-          setRelationSelection(draftRelationNodes[0], '', '', '');
-          setRelationStatus(`已选择起点：${draftRelationNodes[0]}。请再选终点。`);
-        } else {
-          setRelationSelection(draftRelationNodes[0], draftRelationNodes[1], '关系', '');
-          setRelationStatus(`已选择关系端点：${draftRelationNodes[0]} -> ${draftRelationNodes[1]}`);
         }
         return;
       }
@@ -773,10 +786,22 @@ function getOrderedPlotNodes() {
   return ordered;
 }
 
+function pushVisualUndo() {
+  if (state && state.workshop) {
+    visualUndoStack.push(JSON.parse(JSON.stringify(state.workshop)));
+    if (visualUndoStack.length > 20) {
+      visualUndoStack.shift();
+    }
+  }
+}
+
 function syncTimelineToState() {
   if (!state.workshop) {
     return;
   }
+  
+  pushVisualUndo();
+  
   const list = bind('timeline-list');
   if (!list) {
     return;
@@ -830,6 +855,86 @@ function refreshVisualEditors() {
   renderTimeline();
 }
 
+function formatStoryResult(result) {
+  const sc = result.story_card || result || {};
+  const nextQs = result.next_questions || [];
+  
+  let text = `【一句话故事】\n${sc.logline || '-'}\n\n`;
+  text += `【核心冲突】\n${sc.core_conflict || '-'}\n\n`;
+  text += `【前三秒钩子】\n${sc.hook || '-'}\n\n`;
+  text += `【属性】\n主题：${sc.theme || '-'}\n基调：${sc.tone || '-'}\n结构：${sc.structure_template || '-'}\n结局：${sc.ending_type || '-'}\n\n`;
+  
+  text += `【结构锚点】\n`;
+  if (sc.anchor_points && sc.anchor_points.length) {
+    sc.anchor_points.forEach((pt, i) => {
+      text += `${i + 1}. ${pt}\n`;
+    });
+  } else {
+    text += '-\n';
+  }
+  
+  text += `\n【建议追问】\n`;
+  if (nextQs.length) {
+    nextQs.forEach((q) => {
+      text += `- ${q}\n`;
+    });
+  } else {
+    text += '-\n';
+  }
+  return text;
+}
+
+function formatWorkshopResult(ws) {
+  if (!ws) return '-';
+  let text = `【角色设定】\n`;
+  if (ws.characters && ws.characters.length) {
+    ws.characters.forEach(c => {
+      text += `- ${c.name} (${(c.tags || []).join(', ')})\n  动机: ${c.motivation || '-'}\n  弧光: ${c.arc || '-'}\n`;
+    });
+  } else {
+    text += '-\n';
+  }
+  
+  text += `\n【角色关系】\n`;
+  if (ws.relationships && ws.relationships.length) {
+    ws.relationships.forEach(r => {
+      text += `- ${r.from} -> ${r.to}: ${r.type} (${r.tension || ''})\n`;
+    });
+  } else {
+    text += '-\n';
+  }
+
+  text += `\n【情节节点】\n`;
+  if (ws.plot_nodes && ws.plot_nodes.length) {
+    ws.plot_nodes.forEach(n => {
+      text += `[${n.node_id || '-'}] ${n.phase || '-'} - ${n.location || '-'}\n`;
+      text += `  动作: ${n.action || '-'}\n`;
+      text += `  对白: ${n.dialogue_draft || '-'}\n`;
+      text += `  情感: ${n.emotion_shift || '-'}\n\n`;
+    });
+  } else {
+    text += '-\n';
+  }
+  
+  return text.trim();
+}
+
+function formatStoryboardResult(sb) {
+  if (!sb) return '-';
+  let text = `【分镜列表】\n`;
+  if (sb.storyboards && sb.storyboards.length) {
+    sb.storyboards.forEach(s => {
+      text += `[${s.shot_id || '-'}] (关联: ${s.related_node_id || '-'}) | ${s.shot_type || '-'} | ${s.camera_movement || '-'} | ${s.duration_sec || 0}秒\n`;
+      text += `  画面: ${s.visual_description || '-'}\n`;
+      text += `  声音: ${s.dialogue_or_sfx || '-'}\n`;
+      text += `  提示词: ${s.prompt_draft || '-'}\n\n`;
+    });
+  } else {
+    text += '-\n';
+  }
+  return text.trim();
+}
+
 function bindWorkshopActions() {
   const btnStory = bind('btn-story');
   if (btnStory) {
@@ -850,7 +955,8 @@ function bindWorkshopActions() {
 
       state.story_card = data.result.story_card;
       saveState();
-      updateOutput('story-output', pretty(data.result));
+
+      updateOutput('story-output', formatStoryResult(data.result));
     });
   }
 
@@ -894,10 +1000,11 @@ function bindWorkshopActions() {
       for (const [providerId, result] of Object.entries(data.results)) {
         const provider = providersList.find(p => p.id === providerId);
         const providerName = provider ? provider.name : providerId;
+        const formattedResult = formatStoryResult(result);
         html += `
           <div class="panel soft">
             <h3>${providerName}</h3>
-            <pre style="max-height:300px; overflow:auto; font-size:12px;">${JSON.stringify(result, null, 2)}</pre>
+            <pre style="max-height:300px; overflow:auto; font-size:12px;">${formattedResult}</pre>
           </div>
         `;
       }
@@ -934,7 +1041,8 @@ function bindWorkshopActions() {
 
       state.workshop = data.result;
       saveState();
-      updateOutput('workshop-output', pretty(data.result));
+
+      updateOutput('workshop-output', formatWorkshopResult(state.workshop));
       refreshVisualEditors();
     });
   }
@@ -956,7 +1064,8 @@ function bindWorkshopActions() {
 
       state.storyboard = data.result;
       saveState();
-      updateOutput('storyboard-output', pretty(data.result));
+
+      updateOutput('storyboard-output', formatStoryboardResult(state.storyboard));
     });
   }
 
@@ -987,17 +1096,75 @@ function bindWorkshopActions() {
         refreshVisualEditors();
       }
 
-      updateOutput('command-output', pretty(data.result));
+      let cmdText = `【理解命令】\n${data.result.command_understanding || '-'}\n\n`;
+      cmdText += `【一致性检查】\n`;
+      if (data.result.consistency_report && data.result.consistency_report.length) {
+        data.result.consistency_report.forEach(r => cmdText += `- ${r}\n`);
+      } else {
+        cmdText += '-\n';
+      }
+      cmdText += `\n【下一步建议】\n`;
+      if (data.result.suggestions && data.result.suggestions.length) {
+        data.result.suggestions.forEach(s => cmdText += `- ${s}\n`);
+      } else {
+        cmdText += '-\n';
+      }
+      updateOutput('command-output', cmdText.trim());
     });
   }
 }
 
 function bindVisualActions() {
+  const btnVisualUndo = bind('btn-visual-undo');
+  if (btnVisualUndo) {
+    btnVisualUndo.addEventListener('click', () => {
+      if (visualUndoStack.length > 0) {
+        state.workshop = visualUndoStack.pop();
+        saveState();
+        refreshVisualEditors();
+        setRelationStatus('已撤销上一步操作。');
+      } else {
+        setRelationStatus('没有可撤销的操作。');
+      }
+    });
+  }
+
+  const btnCharAdd = bind('btn-char-add');
+  if (btnCharAdd) {
+    btnCharAdd.addEventListener('click', () => {
+      if (!state.workshop) {
+        state.workshop = { characters: [], relationships: [], plot_nodes: [] };
+      }
+      const charName = bind('new-char-name')?.value.trim();
+      if (!charName) {
+        setRelationStatus('请输入角色名称。');
+        return;
+      }
+      
+      pushVisualUndo();
+      state.workshop.characters = state.workshop.characters || [];
+      if (!state.workshop.characters.find(c => c.name === charName)) {
+        state.workshop.characters.push({
+          name: charName,
+          tags: ["未定义标签"],
+          motivation: "",
+          arc: ""
+        });
+        setRelationStatus(`已新增独立角色：${charName}`);
+        bind('new-char-name').value = '';
+        saveState();
+        refreshVisualEditors();
+      } else {
+        setRelationStatus('该角色已存在。');
+      }
+    });
+  }
+
   const btnRelSave = bind('btn-rel-save');
   if (btnRelSave) {
     btnRelSave.addEventListener('click', () => {
       if (!state.workshop) {
-        setRelationStatus('请先在创作工坊生成角色与情节。');
+        setRelationStatus('请先在创作工坊生成角色与情节（或先添加角色）。');
         return;
       }
 
@@ -1011,6 +1178,7 @@ function bindVisualActions() {
         return;
       }
 
+      pushVisualUndo();
       state.workshop.relationships = state.workshop.relationships || [];
       const idx =
         selectedRelationIndex !== null
@@ -1042,6 +1210,8 @@ function bindVisualActions() {
 
       const from = bind('rel-from-display')?.value.trim() || '';
       const to = bind('rel-to-display')?.value.trim() || '';
+      
+      pushVisualUndo();
 
       if (selectedRelationIndex !== null && state.workshop.relationships[selectedRelationIndex]) {
         const rel = state.workshop.relationships[selectedRelationIndex];
@@ -1134,13 +1304,13 @@ function bindExportActions() {
 
 function restoreOutputsOnPageLoad() {
   if (bind('story-output') && state.story_card) {
-    updateOutput('story-output', pretty({ story_card: state.story_card }));
+    updateOutput('story-output', formatStoryResult({ story_card: state.story_card }));
   }
   if (bind('workshop-output') && state.workshop) {
-    updateOutput('workshop-output', pretty(state.workshop));
+    updateOutput('workshop-output', formatWorkshopResult(state.workshop));
   }
   if (bind('storyboard-output') && state.storyboard) {
-    updateOutput('storyboard-output', pretty(state.storyboard));
+    updateOutput('storyboard-output', formatStoryboardResult(state.storyboard));
   }
   if (bind('export-output') && hasDataForExport()) {
     updateOutput('export-output', '已检测到可导出的本地数据。');
@@ -1297,6 +1467,25 @@ function renderLongSegmentsList() {
         const url = output.video_url || output.url || output?.result?.video?.url || '';
 
         updateOutput('video-task-output', `第${idx}段任务 ${taskId}\n状态: ${status}`);
+        
+        const video = getVideoState();
+        let changed = false;
+        if (video.long_segments) {
+          const s = video.long_segments.find(x => String(x.task_id) === String(taskId));
+          if (s && s.task_status !== status) {
+            s.task_status = status;
+            changed = true;
+          }
+        }
+        if (url && video.video_url !== url) {
+          video.video_url = url;
+          changed = true;
+        }
+        if (changed) {
+          saveState();
+          renderLongSegmentsList(); // 重新渲染列表以更新状态文字
+        }
+
         if (url) {
           renderVideoResult(url);
         }
@@ -1323,6 +1512,71 @@ function extractPromptFromScript(scriptText) {
 }
 
 function bindVideoActions() {
+  const videoPromptInput = bind('video-prompt');
+  if (videoPromptInput) {
+    videoPromptInput.addEventListener('change', () => {
+      const video = getVideoState();
+      if (video.prompt !== videoPromptInput.value) {
+        video.prompt = videoPromptInput.value;
+        // Optionally clear video_url when prompt is manually changed to avoid confusion?
+        // Let's just save the updated prompt state.
+        saveState();
+      }
+    });
+  }
+
+  const btnImportLabInfo = bind('btn-import-lab-info');
+  if (btnImportLabInfo) {
+    btnImportLabInfo.addEventListener('click', () => {
+      if (!state.story_card && !state.workshop) {
+        alert('请先在创作工坊生成故事和角色节点！');
+        return;
+      }
+      if (state.story_card) {
+        if (bind('video-idea')) bind('video-idea').value = state.story_card.logline || state.story_card.core_conflict || '';
+        if (bind('video-genre')) bind('video-genre').value = state.story_card.theme || '';
+      }
+      if (state.workshop && state.workshop.characters) {
+        const roles = state.workshop.characters.map(c => c.name).join('、');
+        if (bind('video-roles')) bind('video-roles').value = roles;
+      }
+      // HIDE OLD VIDEO WHEN IMPORTING NEW SCRIPT
+      const video = getVideoState();
+      video.video_url = '';
+      saveState();
+      const wrap = bind('video-result-wrap');
+      if (wrap) wrap.style.display = 'none';
+
+      alert('已导入核心设定、题材与人物。可以直接生成短剧脚本了！');
+    });
+  }
+
+  const btnImportLabStoryboard = bind('btn-import-lab-storyboard');
+  if (btnImportLabStoryboard) {
+    btnImportLabStoryboard.addEventListener('click', () => {
+      if (!state.storyboard || !state.storyboard.storyboards || state.storyboard.storyboards.length === 0) {
+        alert('请先在创作工坊生成并保存分镜！');
+        return;
+      }
+      
+      let finalPrompts = state.storyboard.storyboards.map((s, idx) => {
+        return `镜头 ${idx + 1} (${s.shot_type || '中景'}): ${s.visual_description || ''}。提示词: ${s.prompt_draft || ''}`;
+      }).join('\n\n');
+      
+      if (bind('video-prompt')) {
+        bind('video-prompt').value = finalPrompts;
+        const video = getVideoState();
+        video.prompt = finalPrompts;
+        video.video_url = '';
+        saveState();
+
+        const wrap = bind('video-result-wrap');
+        if (wrap) wrap.style.display = 'none';
+      }
+      alert('已直接导入分镜作为视频提示词，现在可以创建视频任务了！');
+    });
+  }
+
   const btnScript = bind('btn-video-script');
   if (btnScript) {
     btnScript.addEventListener('click', async () => {
@@ -1350,7 +1604,11 @@ function bindVideoActions() {
       const video = getVideoState();
       video.script = data.script;
       video.prompt = extractPromptFromScript(data.script);
+      video.video_url = '';
       saveState();
+
+      const wrap = bind('video-result-wrap');
+      if (wrap) wrap.style.display = 'none';
 
       updateOutput('video-script-output', data.script);
       if (bind('video-prompt')) {
@@ -1461,6 +1719,11 @@ function bindVideoActions() {
         video.long_segments = data.result?.segments || [];
         video.total_duration = data.result?.total_duration || totalDuration;
         video.filename_prefix = bind('video-filename-prefix')?.value.trim() || '';
+        video.video_url = ''; // Clear single video url to avoid confusion
+
+        const wrap = bind('video-result-wrap');
+        if (wrap) wrap.style.display = 'none';
+
         saveState();
 
         let text = `长视频拆段任务已创建。\n总时长: ${video.total_duration} 秒`; 
