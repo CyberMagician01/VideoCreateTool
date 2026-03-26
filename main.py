@@ -109,6 +109,337 @@ def _default_project_state() -> Dict[str, Any]:
     }
 
 
+def _as_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def _string_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        result: List[str] = []
+        for item in value:
+            text = _as_text(item)
+            if text:
+                result.append(text)
+        return result
+    text = _as_text(value)
+    return [text] if text else []
+
+
+def _safe_int(value: Any, default: int = 0, *, minimum: Optional[int] = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    return parsed
+
+
+def _first_present(data: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in data:
+            value = data.get(key)
+            if value not in (None, "", [], {}):
+                return value
+    return None
+
+
+def _derive_storyboard_prompt(shot: Dict[str, Any]) -> str:
+    parts = [
+        _as_text(shot.get("shot_type")),
+        _as_text(shot.get("camera_movement")),
+        _as_text(shot.get("visual_description")),
+        _as_text(shot.get("dialogue_or_sfx")),
+    ]
+    return " | ".join(part for part in parts if part)
+
+
+def _normalize_story_card(story_card: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(story_card, dict):
+        return None
+
+    normalized = {
+        "logline": _as_text(story_card.get("logline")),
+        "theme": _as_text(story_card.get("theme")),
+        "tone": _as_text(story_card.get("tone")),
+        "structure_template": _as_text(story_card.get("structure_template")),
+        "core_conflict": _as_text(story_card.get("core_conflict")),
+        "anchor_points": _string_list(story_card.get("anchor_points")),
+        "hook": _as_text(story_card.get("hook")),
+        "ending_type": _as_text(story_card.get("ending_type")),
+    }
+    if any(
+        [
+            normalized["logline"],
+            normalized["theme"],
+            normalized["tone"],
+            normalized["structure_template"],
+            normalized["core_conflict"],
+            normalized["anchor_points"],
+            normalized["hook"],
+            normalized["ending_type"],
+        ]
+    ):
+        return normalized
+    return None
+
+
+def _normalize_story_engine_result(result: Any) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {"story_card": None, "next_questions": []}
+    return {
+        "story_card": _normalize_story_card(result.get("story_card") if "story_card" in result else result),
+        "next_questions": _string_list(result.get("next_questions")),
+    }
+
+
+def _normalize_character(character: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(character, dict):
+        return None
+    normalized = {
+        "name": _as_text(_first_present(character, "name", "character_name")),
+        "tags": _string_list(_first_present(character, "tags", "labels")),
+        "motivation": _as_text(_first_present(character, "motivation", "goal")),
+        "arc": _as_text(_first_present(character, "arc", "character_arc")),
+    }
+    if normalized["name"]:
+        return normalized
+    return None
+
+
+def _normalize_relationship(relationship: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(relationship, dict):
+        return None
+    normalized = {
+        "from": _as_text(_first_present(relationship, "from", "source", "from_character")),
+        "to": _as_text(_first_present(relationship, "to", "target", "to_character")),
+        "type": _as_text(_first_present(relationship, "type", "relationship", "relation")),
+        "tension": _as_text(_first_present(relationship, "tension", "conflict")),
+    }
+    if normalized["from"] and normalized["to"]:
+        return normalized
+    return None
+
+
+def _normalize_plot_node(node: Any, index: int) -> Optional[Dict[str, Any]]:
+    if not isinstance(node, dict):
+        return None
+    normalized = {
+        "id": _as_text(_first_present(node, "id", "node_id")) or f"N{index}",
+        "template_stage": _as_text(_first_present(node, "template_stage", "phase", "stage")),
+        "summary": _as_text(_first_present(node, "summary", "plot", "content", "scene_summary")),
+        "location": _as_text(_first_present(node, "location", "scene_location")),
+        "action_draft": _as_text(_first_present(node, "action_draft", "action", "action_description")),
+        "dialogue_draft": _string_list(_first_present(node, "dialogue_draft", "dialogue", "dialogues")),
+        "emotion_shift": _as_text(_first_present(node, "emotion_shift", "emotional_shift", "emotion")),
+        "consistency_check": _as_text(_first_present(node, "consistency_check", "logic_check", "consistency")),
+    }
+    if any(
+        [
+            normalized["template_stage"],
+            normalized["summary"],
+            normalized["location"],
+            normalized["action_draft"],
+            normalized["dialogue_draft"],
+            normalized["emotion_shift"],
+            normalized["consistency_check"],
+        ]
+    ):
+        return normalized
+    return None
+
+
+def _normalize_card_wall_group(group: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(group, dict):
+        return None
+    normalized = {
+        "group": _as_text(_first_present(group, "group", "name", "title")),
+        "node_ids": _string_list(_first_present(group, "node_ids", "ids")),
+    }
+    if normalized["group"] or normalized["node_ids"]:
+        return normalized
+    return None
+
+
+def _normalize_workshop_result(workshop: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(workshop, dict):
+        return None
+
+    characters = [item for item in (_normalize_character(c) for c in workshop.get("characters", [])) if item]
+    relationships = [
+        item for item in (_normalize_relationship(r) for r in workshop.get("relationships", [])) if item
+    ]
+    plot_nodes = [
+        item for item in (_normalize_plot_node(node, idx + 1) for idx, node in enumerate(workshop.get("plot_nodes", [])))
+        if item
+    ]
+    available_node_ids = {node["id"] for node in plot_nodes}
+    timeline_view = [
+        node_id for node_id in _string_list(workshop.get("timeline_view")) if node_id in available_node_ids
+    ]
+    if not timeline_view:
+        timeline_view = [node["id"] for node in plot_nodes]
+    card_wall_groups = [
+        item for item in (_normalize_card_wall_group(group) for group in workshop.get("card_wall_groups", [])) if item
+    ]
+
+    if any([characters, relationships, plot_nodes, timeline_view, card_wall_groups]):
+        return {
+            "characters": characters,
+            "relationships": relationships,
+            "plot_nodes": plot_nodes,
+            "timeline_view": timeline_view,
+            "card_wall_groups": card_wall_groups,
+        }
+    return None
+
+
+def _normalize_storyboard_shot(shot: Any, index: int) -> Optional[Dict[str, Any]]:
+    if not isinstance(shot, dict):
+        return None
+    normalized = {
+        "shot_id": _as_text(_first_present(shot, "shot_id", "id")) or f"S{index}",
+        "related_node_id": _as_text(_first_present(shot, "related_node_id", "node_id", "plot_node_id")),
+        "shot_type": _as_text(_first_present(shot, "shot_type", "camera_size")),
+        "camera_movement": _as_text(_first_present(shot, "camera_movement", "movement", "camera_motion")),
+        "visual_description": _as_text(
+            _first_present(shot, "visual_description", "visual", "image_description", "description")
+        ),
+        "dialogue_or_sfx": _as_text(_first_present(shot, "dialogue_or_sfx", "dialogue", "sound_design", "audio")),
+        "duration_sec": _safe_int(_first_present(shot, "duration_sec", "duration", "estimated_duration"), 4, minimum=1),
+        "shooting_note": _as_text(_first_present(shot, "shooting_note", "note", "production_note")),
+        "prompt_draft": _as_text(_first_present(shot, "prompt_draft", "video_prompt", "prompt", "visual_prompt")),
+    }
+    if not normalized["prompt_draft"]:
+        normalized["prompt_draft"] = _derive_storyboard_prompt(normalized)
+    if any(
+        [
+            normalized["related_node_id"],
+            normalized["shot_type"],
+            normalized["camera_movement"],
+            normalized["visual_description"],
+            normalized["dialogue_or_sfx"],
+            normalized["prompt_draft"],
+        ]
+    ):
+        return normalized
+    return None
+
+
+def _normalize_storyboard_result(storyboard: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(storyboard, dict):
+        return None
+
+    storyboards = [
+        item
+        for item in (
+            _normalize_storyboard_shot(shot, idx + 1)
+            for idx, shot in enumerate(storyboard.get("storyboards", []))
+        )
+        if item
+    ]
+    estimated_total_duration_sec = _safe_int(
+        storyboard.get("estimated_total_duration_sec"),
+        sum(item["duration_sec"] for item in storyboards),
+        minimum=0,
+    )
+    export_ready_checklist = _string_list(storyboard.get("export_ready_checklist"))
+
+    if storyboards or export_ready_checklist or estimated_total_duration_sec:
+        return {
+            "storyboards": storyboards,
+            "estimated_total_duration_sec": estimated_total_duration_sec,
+            "export_ready_checklist": export_ready_checklist,
+        }
+    return None
+
+
+def _normalize_video_segment(segment: Any, index: int) -> Optional[Dict[str, Any]]:
+    if not isinstance(segment, dict):
+        return None
+    normalized = {
+        "index": _safe_int(segment.get("index"), index, minimum=1),
+        "duration": _safe_int(segment.get("duration"), 0, minimum=0),
+        "prompt": _as_text(segment.get("prompt")),
+        "task_id": _as_text(segment.get("task_id")),
+        "task_status": _as_text(segment.get("task_status")),
+        "video_url": _as_text(_first_present(segment, "video_url", "url")),
+    }
+    if any(normalized.values()):
+        return normalized
+    return None
+
+
+def _normalize_video_lab_state(video_lab: Any) -> Dict[str, Any]:
+    base = _default_project_state()["video_lab"]
+    if not isinstance(video_lab, dict):
+        return base
+
+    segments = [
+        item
+        for item in (
+            _normalize_video_segment(segment, idx + 1)
+            for idx, segment in enumerate(video_lab.get("long_segments", []))
+        )
+        if item
+    ]
+    return {
+        "script": _as_text(video_lab.get("script")),
+        "prompt": _as_text(video_lab.get("prompt")),
+        "task_id": _as_text(video_lab.get("task_id")),
+        "task_status": _as_text(video_lab.get("task_status")),
+        "video_url": _as_text(_first_present(video_lab, "video_url", "url")),
+        "auto_poll": bool(video_lab.get("auto_poll", True)),
+        "last_check_time": _as_text(video_lab.get("last_check_time")),
+        "long_segments": segments,
+        "total_duration": _safe_int(video_lab.get("total_duration"), 0, minimum=0),
+        "filename_prefix": _as_text(video_lab.get("filename_prefix")),
+    }
+
+
+def _normalize_project_state(state: Any) -> Dict[str, Any]:
+    return {
+        "story_card": _normalize_story_card(state.get("story_card")) if isinstance(state, dict) else None,
+        "workshop": _normalize_workshop_result(state.get("workshop")) if isinstance(state, dict) else None,
+        "storyboard": _normalize_storyboard_result(state.get("storyboard")) if isinstance(state, dict) else None,
+        "video_lab": _normalize_video_lab_state(state.get("video_lab") if isinstance(state, dict) else None),
+    }
+
+
+def _normalize_command_result(result: Any) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {
+            "command_understanding": "",
+            "updated_state": {},
+            "consistency_report": [],
+            "suggestions": [],
+        }
+
+    updated_state = result.get("updated_state", {})
+    normalized_updated_state: Dict[str, Any] = {}
+    if isinstance(updated_state, dict):
+        story_card = _normalize_story_card(updated_state.get("story_card"))
+        workshop = _normalize_workshop_result(updated_state.get("workshop"))
+        storyboard = _normalize_storyboard_result(updated_state.get("storyboard"))
+        if story_card is not None:
+            normalized_updated_state["story_card"] = story_card
+        if workshop is not None:
+            normalized_updated_state["workshop"] = workshop
+        if storyboard is not None:
+            normalized_updated_state["storyboard"] = storyboard
+
+    return {
+        "command_understanding": _as_text(result.get("command_understanding")),
+        "updated_state": normalized_updated_state,
+        "consistency_report": _string_list(result.get("consistency_report")),
+        "suggestions": _string_list(result.get("suggestions")),
+    }
+
+
 def _get_db_conn() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -170,7 +501,7 @@ def _create_project(
     last_provider: str = "",
 ) -> Dict[str, Any]:
     now = _utc_now_iso()
-    state_payload = state if isinstance(state, dict) else _default_project_state()
+    state_payload = _normalize_project_state(state)
     cur = conn.execute(
         """
         INSERT INTO projects(name, creator, description, created_at, updated_at, cover_image, last_provider, deleted)
@@ -227,7 +558,7 @@ def _get_project_with_state(conn: sqlite3.Connection, project_id: int) -> Option
         try:
             parsed = json.loads(state_row["state_json"])
             if isinstance(parsed, dict):
-                state_obj = parsed
+                state_obj = _normalize_project_state(parsed)
         except json.JSONDecodeError:
             state_obj = _default_project_state()
 
@@ -849,16 +1180,20 @@ def _workshop_prompt(payload: Dict[str, Any]) -> str:
     plot_requirements = payload.get("plot_requirements", "")
 
     return f"""
-你是短剧创作智能体的第二层：剧本工坊。
-请基于故事卡生成角色、情节节点、对白草稿，输出严格 JSON。
+You are the workshop layer of a short-drama writing assistant.
+Return strict JSON only. No markdown, no explanation.
+Write all content values in Chinese.
 
-故事卡：
+Story card:
 {json.dumps(story_card, ensure_ascii=False, indent=2)}
 
-用户角色要求：{role_requirements}
-用户情节要求：{plot_requirements}
+Role requirements:
+{role_requirements}
 
-JSON schema:
+Plot requirements:
+{plot_requirements}
+
+Required JSON schema:
 {{
   "characters": [
     {{
@@ -869,21 +1204,31 @@ JSON schema:
     }}
   ],
   "relationships": [
-    {{"from": "A", "to": "B", "type": "关系类型", "tension": "冲突点"}}
+    {{
+      "from": "角色A",
+      "to": "角色B",
+      "type": "关系类型",
+      "tension": "冲突点"
+    }}
   ],
   "plot_nodes": [
     {{
       "id": "N1",
       "template_stage": "激励事件/第一次转折/高潮等",
-      "summary": "节点剧情",
-      "consistency_check": "若存在潜在矛盾则提示，否则写无",
+      "summary": "这一节点发生了什么",
+      "location": "地点",
+      "action_draft": "动作与场面调度",
       "dialogue_draft": ["角色: 台词"],
-      "action_draft": "动作与场面调度"
+      "emotion_shift": "这一节点前后情绪变化",
+      "consistency_check": "潜在逻辑问题，没有则写无"
     }}
   ],
-  "timeline_view": ["按时间顺序的节点ID"],
+  "timeline_view": ["N1", "N2"],
   "card_wall_groups": [
-    {{"group": "铺垫/冲突/反转", "node_ids": ["N1", "N2"]}}
+    {{
+      "group": "铺垫/冲突/反转/收束",
+      "node_ids": ["N1", "N2"]
+    }}
   ]
 }}
 """.strip()
@@ -894,26 +1239,29 @@ def _storyboard_prompt(payload: Dict[str, Any]) -> str:
     style = payload.get("visual_style", "")
 
     return f"""
-你是短剧创作智能体的第三层：分镜工厂。
-请将剧本节点转换为分镜卡，输出严格 JSON。
+You are the storyboard layer of a short-drama writing assistant.
+Return strict JSON only. No markdown, no explanation.
+Write all content values in Chinese.
 
-剧本工坊结果：
+Workshop result:
 {json.dumps(workshop, ensure_ascii=False, indent=2)}
 
-视觉风格要求：{style}
+Visual style requirement:
+{style}
 
-JSON schema:
+Required JSON schema:
 {{
   "storyboards": [
     {{
       "shot_id": "S1",
       "related_node_id": "N1",
       "shot_type": "特写/中景/全景",
-      "camera_movement": "固定/推/拉/摇/跟拍",
+      "camera_movement": "固定/推/拉/摇/移/跟拍",
       "visual_description": "画面内容",
       "dialogue_or_sfx": "对白或音效",
       "duration_sec": 4,
-      "shooting_note": "拍摄备注"
+      "shooting_note": "拍摄备注",
+      "prompt_draft": "可直接用于视频生成的提示词"
     }}
   ],
   "estimated_total_duration_sec": 60,
@@ -948,100 +1296,704 @@ JSON schema:
 """.strip()
 
 
+def _normalize_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    project = payload.get("project", {}) if isinstance(payload, dict) else {}
+    if not isinstance(project, dict):
+        project = {}
+
+    return {
+        "project": {
+            "id": _as_text(project.get("id")),
+            "name": _as_text(_first_present(project, "name", "project_name")) or "未命名项目",
+            "creator": _as_text(project.get("creator")),
+            "description": _as_text(project.get("description")),
+            "created_at": _as_text(project.get("created_at")),
+            "updated_at": _as_text(project.get("updated_at")),
+        },
+        "current_provider": _as_text(
+            payload.get("current_provider") if isinstance(payload, dict) else ""
+        )
+        or _as_text(payload.get("provider") if isinstance(payload, dict) else "")
+        or _as_text(project.get("last_provider")),
+        "exported_at": _as_text(payload.get("exported_at") if isinstance(payload, dict) else "") or _utc_now_iso(),
+        "story_card": _normalize_story_card(payload.get("story_card") if isinstance(payload, dict) else None),
+        "workshop": _normalize_workshop_result(payload.get("workshop") if isinstance(payload, dict) else None),
+        "storyboard": _normalize_storyboard_result(payload.get("storyboard") if isinstance(payload, dict) else None),
+        "video_lab": _normalize_video_lab_state(payload.get("video_lab") if isinstance(payload, dict) else None),
+    }
+
+
 def _export_markdown(payload: Dict[str, Any]) -> Dict[str, Any]:
-    story_card = payload.get("story_card", {})
-    workshop = payload.get("workshop", {})
-    storyboard = payload.get("storyboard", {})
+    data = _normalize_export_payload(payload)
+    project = data["project"]
+    story_card = data["story_card"] or {}
+    workshop = data["workshop"] or {}
+    storyboard = data["storyboard"] or {}
+    video_lab = data["video_lab"] or _default_project_state()["video_lab"]
 
     lines: List[str] = []
     lines.append("# AI短剧项目导出")
     lines.append("")
+    lines.append("## 0. 项目信息")
+    lines.append(f"- 项目名称: {project.get('name', '未命名项目')}")
+    lines.append(f"- 创建人: {project.get('creator', '') or '-'}")
+    lines.append(f"- 项目描述: {project.get('description', '') or '-'}")
+    lines.append(f"- 创建时间: {project.get('created_at', '') or '-'}")
+    lines.append(f"- 更新时间: {project.get('updated_at', '') or '-'}")
+    lines.append(f"- 导出时间: {data.get('exported_at', '') or '-'}")
+    lines.append(f"- 当前模型: {data.get('current_provider', '') or '-'}")
+    lines.append("")
+
     lines.append("## 1. 故事卡")
-    lines.append(f"- Logline: {story_card.get('logline', '')}")
-    lines.append(f"- 主题: {story_card.get('theme', '')}")
-    lines.append(f"- 基调: {story_card.get('tone', '')}")
-    lines.append(f"- 结构模板: {story_card.get('structure_template', '')}")
-    lines.append(f"- 核心冲突: {story_card.get('core_conflict', '')}")
+    lines.append(f"- Logline: {story_card.get('logline', '') or '-'}")
+    lines.append(f"- 主题: {story_card.get('theme', '') or '-'}")
+    lines.append(f"- 基调: {story_card.get('tone', '') or '-'}")
+    lines.append(f"- 结构模板: {story_card.get('structure_template', '') or '-'}")
+    lines.append(f"- 核心冲突: {story_card.get('core_conflict', '') or '-'}")
+    lines.append(f"- 钩子: {story_card.get('hook', '') or '-'}")
+    lines.append(f"- 结局类型: {story_card.get('ending_type', '') or '-'}")
+    lines.append("- 结构锚点:")
+    if story_card.get("anchor_points"):
+        for index, point in enumerate(story_card.get("anchor_points", []), start=1):
+            lines.append(f"  {index}. {point}")
+    else:
+        lines.append("  - 无")
     lines.append("")
 
     lines.append("## 2. 角色设定")
-    for c in workshop.get("characters", []):
-        tags = ", ".join(c.get("tags", []))
-        lines.append(f"- {c.get('name', '未命名角色')} | 标签: {tags} | 动机: {c.get('motivation', '')}")
-    lines.append("")
-
-    lines.append("## 3. 情节脉络")
-    for n in workshop.get("plot_nodes", []):
-        lines.append(
-            f"- {n.get('id', '')} [{n.get('template_stage', '')}] {n.get('summary', '')}"
-        )
-    lines.append("")
-
-    lines.append("## 4. 分镜表")
-    lines.append("| 镜头ID | 对应节点 | 景别 | 运镜 | 画面 | 对白/音效 | 时长(秒) |")
-    lines.append("|---|---|---|---|---|---|---|")
-    for s in storyboard.get("storyboards", []):
-        lines.append(
-            "| {shot_id} | {node} | {shot_type} | {move} | {visual} | {sound} | {duration} |".format(
-                shot_id=s.get("shot_id", ""),
-                node=s.get("related_node_id", ""),
-                shot_type=s.get("shot_type", ""),
-                move=s.get("camera_movement", ""),
-                visual=str(s.get("visual_description", "")).replace("|", "\\|"),
-                sound=str(s.get("dialogue_or_sfx", "")).replace("|", "\\|"),
-                duration=s.get("duration_sec", ""),
+    if workshop.get("characters"):
+        for character in workshop.get("characters", []):
+            lines.append(
+                f"- {character.get('name', '未命名角色')} | 标签: {', '.join(character.get('tags', [])) or '-'} | 动机: {character.get('motivation', '') or '-'} | 弧光: {character.get('arc', '') or '-'}"
             )
-        )
+    else:
+        lines.append("- 无")
+    lines.append("")
+
+    lines.append("## 3. 角色关系")
+    if workshop.get("relationships"):
+        for relationship in workshop.get("relationships", []):
+            lines.append(
+                f"- {relationship.get('from', '-')} -> {relationship.get('to', '-')} | 类型: {relationship.get('type', '') or '-'} | 冲突: {relationship.get('tension', '') or '-'}"
+            )
+    else:
+        lines.append("- 无")
+    lines.append("")
+
+    lines.append("## 4. 剧情节点")
+    if workshop.get("plot_nodes"):
+        for node in workshop.get("plot_nodes", []):
+            lines.append(f"- {node.get('id', '') or '-'} [{node.get('template_stage', '') or '-'}]")
+            lines.append(f"  摘要: {node.get('summary', '') or '-'}")
+            lines.append(f"  地点: {node.get('location', '') or '-'}")
+            lines.append(f"  动作: {node.get('action_draft', '') or '-'}")
+            lines.append(f"  对白: {_dialogue_text(node.get('dialogue_draft'))}")
+            lines.append(f"  情绪变化: {node.get('emotion_shift', '') or '-'}")
+            lines.append(f"  一致性检查: {node.get('consistency_check', '') or '-'}")
+    else:
+        lines.append("- 无")
+    lines.append("")
+
+    lines.append("## 5. 时间线顺序")
+    if workshop.get("timeline_view"):
+        for index, node_id in enumerate(workshop.get("timeline_view", []), start=1):
+            lines.append(f"{index}. {node_id}")
+    else:
+        lines.append("- 无")
+    lines.append("")
+
+    lines.append("## 6. 分镜表")
+    lines.append("| 镜头ID | 关联节点 | 景别 | 运镜 | 时长(秒) | 画面 | 对白/音效 | 提示词 | 备注 |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
+    if storyboard.get("storyboards"):
+        for shot in storyboard.get("storyboards", []):
+            lines.append(
+                "| {shot_id} | {node} | {shot_type} | {move} | {duration} | {visual} | {sound} | {prompt} | {note} |".format(
+                    shot_id=shot.get("shot_id", ""),
+                    node=shot.get("related_node_id", ""),
+                    shot_type=shot.get("shot_type", ""),
+                    move=shot.get("camera_movement", ""),
+                    duration=shot.get("duration_sec", ""),
+                    visual=str(shot.get("visual_description", "")).replace("|", "\\|"),
+                    sound=str(shot.get("dialogue_or_sfx", "")).replace("|", "\\|"),
+                    prompt=str(shot.get("prompt_draft", "")).replace("|", "\\|"),
+                    note=str(shot.get("shooting_note", "")).replace("|", "\\|"),
+                )
+            )
+    lines.append("")
+    lines.append(f"- 预估总时长: {storyboard.get('estimated_total_duration_sec', 0)} 秒")
+    lines.append("- 导出前检查清单:")
+    if storyboard.get("export_ready_checklist"):
+        for item in storyboard.get("export_ready_checklist", []):
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - 无")
+    lines.append("")
+
+    lines.append("## 7. 视频任务摘要")
+    lines.append(f"- 当前任务ID: {video_lab.get('task_id', '') or '-'}")
+    lines.append(f"- 当前任务状态: {video_lab.get('task_status', '') or '-'}")
+    lines.append(f"- 当前视频链接: {video_lab.get('video_url', '') or '-'}")
+    lines.append(f"- 长视频总时长: {video_lab.get('total_duration', 0)} 秒")
+    lines.append(f"- 文件名前缀: {video_lab.get('filename_prefix', '') or '-'}")
+    if video_lab.get("long_segments"):
+        lines.append("- 拆段任务:")
+        for segment in video_lab.get("long_segments", []):
+            lines.append(
+                f"  - 第{segment.get('index', '-')}段 | 时长: {segment.get('duration', 0)} 秒 | Task ID: {segment.get('task_id', '') or '-'} | 状态: {segment.get('task_status', '') or '-'}"
+            )
+    else:
+        lines.append("- 拆段任务: 无")
 
     return {"markdown": "\n".join(lines)}
 
 
 def _build_docx(payload: Dict[str, Any]) -> BytesIO:
-    story_card = payload.get("story_card", {})
-    workshop = payload.get("workshop", {})
-    storyboard = payload.get("storyboard", {})
+    data = _normalize_export_payload(payload)
+    project = data["project"]
+    story_card = data["story_card"] or {}
+    workshop = data["workshop"] or {}
+    storyboard = data["storyboard"] or {}
+    video_lab = data["video_lab"] or _default_project_state()["video_lab"]
 
     doc = Document()
     doc.add_heading("AI短剧项目导出", level=1)
 
+    doc.add_heading("0. 项目信息", level=2)
+    for line in [
+        f"项目名称: {project.get('name', '未命名项目')}",
+        f"创建人: {project.get('creator', '') or '-'}",
+        f"项目描述: {project.get('description', '') or '-'}",
+        f"创建时间: {project.get('created_at', '') or '-'}",
+        f"更新时间: {project.get('updated_at', '') or '-'}",
+        f"导出时间: {data.get('exported_at', '') or '-'}",
+        f"当前模型: {data.get('current_provider', '') or '-'}",
+    ]:
+        doc.add_paragraph(line)
+
     doc.add_heading("1. 故事卡", level=2)
-    doc.add_paragraph(f"Logline: {story_card.get('logline', '')}")
-    doc.add_paragraph(f"主题: {story_card.get('theme', '')}")
-    doc.add_paragraph(f"基调: {story_card.get('tone', '')}")
-    doc.add_paragraph(f"结构模板: {story_card.get('structure_template', '')}")
-    doc.add_paragraph(f"核心冲突: {story_card.get('core_conflict', '')}")
+    for line in [
+        f"Logline: {story_card.get('logline', '') or '-'}",
+        f"主题: {story_card.get('theme', '') or '-'}",
+        f"基调: {story_card.get('tone', '') or '-'}",
+        f"结构模板: {story_card.get('structure_template', '') or '-'}",
+        f"核心冲突: {story_card.get('core_conflict', '') or '-'}",
+        f"钩子: {story_card.get('hook', '') or '-'}",
+        f"结局类型: {story_card.get('ending_type', '') or '-'}",
+    ]:
+        doc.add_paragraph(line)
+    doc.add_paragraph("结构锚点:")
+    if story_card.get("anchor_points"):
+        for point in story_card.get("anchor_points", []):
+            doc.add_paragraph(point, style="List Bullet")
+    else:
+        doc.add_paragraph("无", style="List Bullet")
 
     doc.add_heading("2. 角色设定", level=2)
-    for c in workshop.get("characters", []):
-        tags = ", ".join(c.get("tags", []))
-        doc.add_paragraph(
-            f"{c.get('name', '未命名角色')} | 标签: {tags} | 动机: {c.get('motivation', '')}",
-            style="List Bullet",
-        )
+    if workshop.get("characters"):
+        for character in workshop.get("characters", []):
+            doc.add_paragraph(
+                f"{character.get('name', '未命名角色')} | 标签: {', '.join(character.get('tags', [])) or '-'} | 动机: {character.get('motivation', '') or '-'} | 弧光: {character.get('arc', '') or '-'}",
+                style="List Bullet",
+            )
+    else:
+        doc.add_paragraph("无", style="List Bullet")
 
-    doc.add_heading("3. 情节脉络", level=2)
-    for n in workshop.get("plot_nodes", []):
-        doc.add_paragraph(
-            f"{n.get('id', '')} [{n.get('template_stage', '')}] {n.get('summary', '')}",
-            style="List Bullet",
-        )
+    doc.add_heading("3. 角色关系", level=2)
+    if workshop.get("relationships"):
+        for relationship in workshop.get("relationships", []):
+            doc.add_paragraph(
+                f"{relationship.get('from', '-')} -> {relationship.get('to', '-')} | 类型: {relationship.get('type', '') or '-'} | 冲突: {relationship.get('tension', '') or '-'}",
+                style="List Bullet",
+            )
+    else:
+        doc.add_paragraph("无", style="List Bullet")
 
-    doc.add_heading("4. 分镜表", level=2)
-    table = doc.add_table(rows=1, cols=7)
-    headers = ["镜头ID", "对应节点", "景别", "运镜", "画面", "对白/音效", "时长(秒)"]
-    header_cells = table.rows[0].cells
-    for i, text in enumerate(headers):
-        header_cells[i].text = text
+    doc.add_heading("4. 剧情节点", level=2)
+    if workshop.get("plot_nodes"):
+        for node in workshop.get("plot_nodes", []):
+            doc.add_paragraph(f"{node.get('id', '')} [{node.get('template_stage', '')}]", style="List Bullet")
+            for detail in [
+                f"摘要: {node.get('summary', '') or '-'}",
+                f"地点: {node.get('location', '') or '-'}",
+                f"动作: {node.get('action_draft', '') or '-'}",
+                f"对白: {_dialogue_text(node.get('dialogue_draft'))}",
+                f"情绪变化: {node.get('emotion_shift', '') or '-'}",
+                f"一致性检查: {node.get('consistency_check', '') or '-'}",
+            ]:
+                doc.add_paragraph(detail)
+    else:
+        doc.add_paragraph("无", style="List Bullet")
 
-    for s in storyboard.get("storyboards", []):
+    doc.add_heading("5. 时间线顺序", level=2)
+    if workshop.get("timeline_view"):
+        for node_id in workshop.get("timeline_view", []):
+            doc.add_paragraph(node_id, style="List Number")
+    else:
+        doc.add_paragraph("无", style="List Bullet")
+
+    doc.add_heading("6. 分镜表", level=2)
+    table = doc.add_table(rows=1, cols=9)
+    headers = ["镜头ID", "关联节点", "景别", "运镜", "时长", "画面", "对白/音效", "提示词", "备注"]
+    for index, header in enumerate(headers):
+        table.rows[0].cells[index].text = header
+    for shot in storyboard.get("storyboards", []):
         row = table.add_row().cells
-        row[0].text = str(s.get("shot_id", ""))
-        row[1].text = str(s.get("related_node_id", ""))
-        row[2].text = str(s.get("shot_type", ""))
-        row[3].text = str(s.get("camera_movement", ""))
-        row[4].text = str(s.get("visual_description", ""))
-        row[5].text = str(s.get("dialogue_or_sfx", ""))
-        row[6].text = str(s.get("duration_sec", ""))
+        row[0].text = str(shot.get("shot_id", ""))
+        row[1].text = str(shot.get("related_node_id", ""))
+        row[2].text = str(shot.get("shot_type", ""))
+        row[3].text = str(shot.get("camera_movement", ""))
+        row[4].text = str(shot.get("duration_sec", ""))
+        row[5].text = str(shot.get("visual_description", ""))
+        row[6].text = str(shot.get("dialogue_or_sfx", ""))
+        row[7].text = str(shot.get("prompt_draft", ""))
+        row[8].text = str(shot.get("shooting_note", ""))
+    doc.add_paragraph(f"预估总时长: {storyboard.get('estimated_total_duration_sec', 0)} 秒")
+    doc.add_paragraph(
+        "导出前检查清单: "
+        + (", ".join(storyboard.get("export_ready_checklist", [])) if storyboard.get("export_ready_checklist") else "无")
+    )
+
+    doc.add_heading("7. 视频任务摘要", level=2)
+    for line in [
+        f"当前任务ID: {video_lab.get('task_id', '') or '-'}",
+        f"当前任务状态: {video_lab.get('task_status', '') or '-'}",
+        f"当前视频链接: {video_lab.get('video_url', '') or '-'}",
+        f"长视频总时长: {video_lab.get('total_duration', 0)} 秒",
+        f"文件名前缀: {video_lab.get('filename_prefix', '') or '-'}",
+    ]:
+        doc.add_paragraph(line)
+    if video_lab.get("long_segments"):
+        for segment in video_lab.get("long_segments", []):
+            doc.add_paragraph(
+                f"第{segment.get('index', '-')}段 | 时长: {segment.get('duration', 0)} 秒 | Task ID: {segment.get('task_id', '') or '-'} | 状态: {segment.get('task_status', '') or '-'}",
+                style="List Bullet",
+            )
+    else:
+        doc.add_paragraph("拆段任务: 无", style="List Bullet")
+
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
+    data = _normalize_export_payload(payload)
+    project = data["project"]
+    story_card = data["story_card"] or {}
+    workshop = data["workshop"] or {}
+    storyboard = data["storyboard"] or {}
+    video_lab = data["video_lab"] or _default_project_state()["video_lab"]
+
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    font_name = _register_pdf_font()
+
+    def ensure_space(y_pos: float, need: float = 40.0) -> float:
+        if y_pos < need:
+            c.showPage()
+            c.setFont(font_name, 11)
+            return height - 50
+        return y_pos
+
+    def draw_section(title: str, lines: List[str], y_pos: float) -> float:
+        y_pos = ensure_space(y_pos, 60)
+        c.setFont(font_name, 13)
+        c.drawString(40, y_pos, title)
+        y_pos -= 20
+        c.setFont(font_name, 11)
+        for line in lines:
+            y_pos = ensure_space(y_pos)
+            y_pos = _draw_wrapped(c, line, font_name, 11, 50, y_pos, width - 90)
+        return y_pos - 8
+
+    y = height - 50
+    c.setFont(font_name, 16)
+    c.drawString(40, y, "AI短剧项目导出")
+    y -= 30
+
+    y = draw_section(
+        "0. 项目信息",
+        [
+            f"项目名称: {project.get('name', '未命名项目')}",
+            f"创建人: {project.get('creator', '') or '-'}",
+            f"项目描述: {project.get('description', '') or '-'}",
+            f"创建时间: {project.get('created_at', '') or '-'}",
+            f"更新时间: {project.get('updated_at', '') or '-'}",
+            f"导出时间: {data.get('exported_at', '') or '-'}",
+            f"当前模型: {data.get('current_provider', '') or '-'}",
+        ],
+        y,
+    )
+
+    y = draw_section(
+        "1. 故事卡",
+        [
+            f"Logline: {story_card.get('logline', '') or '-'}",
+            f"主题: {story_card.get('theme', '') or '-'}",
+            f"基调: {story_card.get('tone', '') or '-'}",
+            f"结构模板: {story_card.get('structure_template', '') or '-'}",
+            f"核心冲突: {story_card.get('core_conflict', '') or '-'}",
+            f"钩子: {story_card.get('hook', '') or '-'}",
+            f"结局类型: {story_card.get('ending_type', '') or '-'}",
+            "结构锚点: " + (", ".join(story_card.get("anchor_points", [])) if story_card.get("anchor_points") else "无"),
+        ],
+        y,
+    )
+
+    role_lines = [
+        f"- {character.get('name', '未命名角色')} | 标签: {', '.join(character.get('tags', [])) or '-'} | 动机: {character.get('motivation', '') or '-'} | 弧光: {character.get('arc', '') or '-'}"
+        for character in workshop.get("characters", [])
+    ] or ["- 无"]
+    y = draw_section("2. 角色设定", role_lines, y)
+
+    relation_lines = [
+        f"- {relationship.get('from', '-')} -> {relationship.get('to', '-')} | 类型: {relationship.get('type', '') or '-'} | 冲突: {relationship.get('tension', '') or '-'}"
+        for relationship in workshop.get("relationships", [])
+    ] or ["- 无"]
+    y = draw_section("3. 角色关系", relation_lines, y)
+
+    plot_lines = []
+    for node in workshop.get("plot_nodes", []):
+        plot_lines.extend(
+            [
+                f"- {node.get('id', '')} [{node.get('template_stage', '')}]",
+                f"  摘要: {node.get('summary', '') or '-'}",
+                f"  地点: {node.get('location', '') or '-'}",
+                f"  动作: {node.get('action_draft', '') or '-'}",
+                f"  对白: {_dialogue_text(node.get('dialogue_draft'))}",
+                f"  情绪变化: {node.get('emotion_shift', '') or '-'}",
+                f"  一致性检查: {node.get('consistency_check', '') or '-'}",
+            ]
+        )
+    if not plot_lines:
+        plot_lines = ["- 无"]
+    y = draw_section("4. 剧情节点", plot_lines, y)
+
+    timeline_lines = [f"{index}. {node_id}" for index, node_id in enumerate(workshop.get("timeline_view", []), start=1)] or ["- 无"]
+    y = draw_section("5. 时间线顺序", timeline_lines, y)
+
+    storyboard_lines = []
+    for shot in storyboard.get("storyboards", []):
+        storyboard_lines.extend(
+            [
+                f"{shot.get('shot_id', '')} | 节点: {shot.get('related_node_id', '')} | 景别: {shot.get('shot_type', '')} | 运镜: {shot.get('camera_movement', '')} | 时长: {shot.get('duration_sec', 0)}秒",
+                f"画面: {shot.get('visual_description', '') or '-'}",
+                f"对白/音效: {shot.get('dialogue_or_sfx', '') or '-'}",
+                f"提示词: {shot.get('prompt_draft', '') or '-'}",
+                f"备注: {shot.get('shooting_note', '') or '-'}",
+            ]
+        )
+    if not storyboard_lines:
+        storyboard_lines = ["- 无"]
+    storyboard_lines.append(f"预估总时长: {storyboard.get('estimated_total_duration_sec', 0)} 秒")
+    storyboard_lines.append(
+        "检查清单: "
+        + (", ".join(storyboard.get("export_ready_checklist", [])) if storyboard.get("export_ready_checklist") else "无")
+    )
+    y = draw_section("6. 分镜表", storyboard_lines, y)
+
+    video_lines = [
+        f"当前任务ID: {video_lab.get('task_id', '') or '-'}",
+        f"当前任务状态: {video_lab.get('task_status', '') or '-'}",
+        f"当前视频链接: {video_lab.get('video_url', '') or '-'}",
+        f"长视频总时长: {video_lab.get('total_duration', 0)} 秒",
+        f"文件名前缀: {video_lab.get('filename_prefix', '') or '-'}",
+    ]
+    if video_lab.get("long_segments"):
+        for segment in video_lab.get("long_segments", []):
+            video_lines.append(
+                f"第{segment.get('index', '-')}段 | 时长: {segment.get('duration', 0)} 秒 | Task ID: {segment.get('task_id', '') or '-'} | 状态: {segment.get('task_status', '') or '-'}"
+            )
+    else:
+        video_lines.append("拆段任务: 无")
+    y = draw_section("7. 视频任务摘要", video_lines, y)
+
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+
+def _dialogue_text(dialogue: Any) -> str:
+    values = _string_list(dialogue)
+    return " / ".join(values) if values else "-"
+
+
+def _normalize_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    project = payload.get("project", {}) if isinstance(payload, dict) else {}
+    if not isinstance(project, dict):
+        project = {}
+
+    return {
+        "project": {
+            "id": _as_text(project.get("id")),
+            "name": _as_text(_first_present(project, "name", "project_name")) or "\u672a\u547d\u540d\u9879\u76ee",
+            "creator": _as_text(project.get("creator")),
+            "description": _as_text(project.get("description")),
+            "created_at": _as_text(project.get("created_at")),
+            "updated_at": _as_text(project.get("updated_at")),
+        },
+        "current_provider": _as_text(payload.get("current_provider") if isinstance(payload, dict) else "")
+        or _as_text(payload.get("provider") if isinstance(payload, dict) else "")
+        or _as_text(project.get("last_provider")),
+        "exported_at": _as_text(payload.get("exported_at") if isinstance(payload, dict) else "") or _utc_now_iso(),
+        "story_card": _normalize_story_card(payload.get("story_card") if isinstance(payload, dict) else None),
+        "workshop": _normalize_workshop_result(payload.get("workshop") if isinstance(payload, dict) else None),
+        "storyboard": _normalize_storyboard_result(payload.get("storyboard") if isinstance(payload, dict) else None),
+        "video_lab": _normalize_video_lab_state(payload.get("video_lab") if isinstance(payload, dict) else None),
+    }
+
+
+def _export_markdown(payload: Dict[str, Any]) -> Dict[str, Any]:
+    data = _normalize_export_payload(payload)
+    project = data["project"]
+    story_card = data["story_card"] or {}
+    workshop = data["workshop"] or {}
+    storyboard = data["storyboard"] or {}
+    video_lab = data["video_lab"] or _default_project_state()["video_lab"]
+
+    lines: List[str] = []
+    lines.append("# AI\u77ed\u5267\u9879\u76ee\u5bfc\u51fa")
+    lines.append("")
+    lines.append("## 0. \u9879\u76ee\u4fe1\u606f")
+    lines.append(f"- \u9879\u76ee\u540d\u79f0: {project.get('name') or '未命名项目'}")
+    lines.append(f"- \u521b\u5efa\u4eba: {project.get('creator', '') or '-'}")
+    lines.append(f"- \u9879\u76ee\u63cf\u8ff0: {project.get('description', '') or '-'}")
+    lines.append(f"- \u521b\u5efa\u65f6\u95f4: {project.get('created_at', '') or '-'}")
+    lines.append(f"- \u66f4\u65b0\u65f6\u95f4: {project.get('updated_at', '') or '-'}")
+    lines.append(f"- \u5bfc\u51fa\u65f6\u95f4: {data.get('exported_at', '') or '-'}")
+    lines.append(f"- \u5f53\u524d\u6a21\u578b: {data.get('current_provider', '') or '-'}")
+    lines.append("")
+
+    lines.append("## 1. \u6545\u4e8b\u5361")
+    lines.append(f"- Logline: {story_card.get('logline', '') or '-'}")
+    lines.append(f"- \u4e3b\u9898: {story_card.get('theme', '') or '-'}")
+    lines.append(f"- \u57fa\u8c03: {story_card.get('tone', '') or '-'}")
+    lines.append(f"- \u7ed3\u6784\u6a21\u677f: {story_card.get('structure_template', '') or '-'}")
+    lines.append(f"- \u6838\u5fc3\u51b2\u7a81: {story_card.get('core_conflict', '') or '-'}")
+    lines.append(f"- \u94a9\u5b50: {story_card.get('hook', '') or '-'}")
+    lines.append(f"- \u7ed3\u5c40\u7c7b\u578b: {story_card.get('ending_type', '') or '-'}")
+    lines.append("- \u7ed3\u6784\u951a\u70b9:")
+    if story_card.get("anchor_points"):
+        for index, point in enumerate(story_card.get("anchor_points", []), start=1):
+            lines.append(f"  {index}. {point}")
+    else:
+        lines.append("  - \u65e0")
+    lines.append("")
+
+    lines.append("## 2. \u89d2\u8272\u8bbe\u5b9a")
+    if workshop.get("characters"):
+        for character in workshop.get("characters", []):
+            lines.append(
+                f"- {character.get('name') or '未命名角色'} | \u6807\u7b7e: {', '.join(character.get('tags', [])) or '-'} | \u52a8\u673a: {character.get('motivation', '') or '-'} | \u5f27\u5149: {character.get('arc', '') or '-'}"
+            )
+    else:
+        lines.append("- \u65e0")
+    lines.append("")
+
+    lines.append("## 3. \u89d2\u8272\u5173\u7cfb")
+    if workshop.get("relationships"):
+        for relationship in workshop.get("relationships", []):
+            lines.append(
+                f"- {relationship.get('from', '-')} -> {relationship.get('to', '-')} | \u7c7b\u578b: {relationship.get('type', '') or '-'} | \u51b2\u7a81: {relationship.get('tension', '') or '-'}"
+            )
+    else:
+        lines.append("- \u65e0")
+    lines.append("")
+
+    lines.append("## 4. \u5267\u60c5\u8282\u70b9")
+    if workshop.get("plot_nodes"):
+        for node in workshop.get("plot_nodes", []):
+            lines.append(f"- {node.get('id', '') or '-'} [{node.get('template_stage', '') or '-'}]")
+            lines.append(f"  \u6458\u8981: {node.get('summary', '') or '-'}")
+            lines.append(f"  \u5730\u70b9: {node.get('location', '') or '-'}")
+            lines.append(f"  \u52a8\u4f5c: {node.get('action_draft', '') or '-'}")
+            lines.append(f"  \u5bf9\u767d: {_dialogue_text(node.get('dialogue_draft'))}")
+            lines.append(f"  \u60c5\u611f\u53d8\u5316: {node.get('emotion_shift', '') or '-'}")
+            lines.append(f"  \u4e00\u81f4\u6027\u68c0\u67e5: {node.get('consistency_check', '') or '-'}")
+    else:
+        lines.append("- \u65e0")
+    lines.append("")
+
+    lines.append("## 5. \u65f6\u95f4\u7ebf\u987a\u5e8f")
+    if workshop.get("timeline_view"):
+        for index, node_id in enumerate(workshop.get("timeline_view", []), start=1):
+            lines.append(f"{index}. {node_id}")
+    else:
+        lines.append("- \u65e0")
+    lines.append("")
+
+    lines.append("## 6. \u5206\u955c\u8868")
+    lines.append("| \u955c\u5934ID | \u5173\u8054\u8282\u70b9 | \u666f\u522b | \u8fd0\u955c | \u65f6\u957f(\u79d2) | \u753b\u9762 | \u5bf9\u767d/\u97f3\u6548 | \u63d0\u793a\u8bcd | \u5907\u6ce8 |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
+    if storyboard.get("storyboards"):
+        for shot in storyboard.get("storyboards", []):
+            lines.append(
+                "| {shot_id} | {node} | {shot_type} | {move} | {duration} | {visual} | {sound} | {prompt} | {note} |".format(
+                    shot_id=shot.get("shot_id", ""),
+                    node=shot.get("related_node_id", ""),
+                    shot_type=shot.get("shot_type", ""),
+                    move=shot.get("camera_movement", ""),
+                    duration=shot.get("duration_sec", ""),
+                    visual=str(shot.get("visual_description", "")).replace("|", "\\|"),
+                    sound=str(shot.get("dialogue_or_sfx", "")).replace("|", "\\|"),
+                    prompt=str(shot.get("prompt_draft", "")).replace("|", "\\|"),
+                    note=str(shot.get("shooting_note", "")).replace("|", "\\|"),
+                )
+            )
+    lines.append("")
+    lines.append(f"- \u9884\u4f30\u603b\u65f6\u957f: {storyboard.get('estimated_total_duration_sec', 0)} \u79d2")
+    lines.append("- \u5bfc\u51fa\u524d\u68c0\u67e5\u6e05\u5355:")
+    if storyboard.get("export_ready_checklist"):
+        for item in storyboard.get("export_ready_checklist", []):
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - \u65e0")
+    lines.append("")
+
+    lines.append("## 7. \u89c6\u9891\u4efb\u52a1\u6458\u8981")
+    lines.append(f"- \u5f53\u524d\u4efb\u52a1ID: {video_lab.get('task_id', '') or '-'}")
+    lines.append(f"- \u5f53\u524d\u4efb\u52a1\u72b6\u6001: {video_lab.get('task_status', '') or '-'}")
+    lines.append(f"- \u5f53\u524d\u89c6\u9891\u94fe\u63a5: {video_lab.get('video_url', '') or '-'}")
+    lines.append(f"- \u957f\u89c6\u9891\u603b\u65f6\u957f: {video_lab.get('total_duration', 0)} \u79d2")
+    lines.append(f"- \u6587\u4ef6\u540d\u524d\u7f00: {video_lab.get('filename_prefix', '') or '-'}")
+    if video_lab.get("long_segments"):
+        lines.append("- \u62c6\u6bb5\u4efb\u52a1:")
+        for segment in video_lab.get("long_segments", []):
+            lines.append(
+                f"  - \u7b2c{segment.get('index', '-')}段 | \u65f6\u957f: {segment.get('duration', 0)} \u79d2 | Task ID: {segment.get('task_id', '') or '-'} | \u72b6\u6001: {segment.get('task_status', '') or '-'}"
+            )
+    else:
+        lines.append("- \u62c6\u6bb5\u4efb\u52a1: \u65e0")
+
+    return {"markdown": "\n".join(lines)}
+
+
+def _build_docx(payload: Dict[str, Any]) -> BytesIO:
+    data = _normalize_export_payload(payload)
+    project = data["project"]
+    story_card = data["story_card"] or {}
+    workshop = data["workshop"] or {}
+    storyboard = data["storyboard"] or {}
+    video_lab = data["video_lab"] or _default_project_state()["video_lab"]
+
+    doc = Document()
+    doc.add_heading("\u77ed\u5267\u9879\u76ee\u5bfc\u51fa", level=1)
+
+    doc.add_heading("\u9879\u76ee\u4fe1\u606f", level=2)
+    for line in [
+        f"\u9879\u76ee\u540d\u79f0: {project.get('name') or '未命名项目'}",
+        f"\u521b\u5efa\u4eba: {project.get('creator', '') or '-'}",
+        f"\u9879\u76ee\u63cf\u8ff0: {project.get('description', '') or '-'}",
+        f"\u521b\u5efa\u65f6\u95f4: {project.get('created_at', '') or '-'}",
+        f"\u66f4\u65b0\u65f6\u95f4: {project.get('updated_at', '') or '-'}",
+        f"\u5bfc\u51fa\u65f6\u95f4: {data.get('exported_at', '') or '-'}",
+        f"\u5f53\u524d\u6a21\u578b: {data.get('current_provider', '') or '-'}",
+    ]:
+        doc.add_paragraph(line)
+
+    doc.add_heading("\u6545\u4e8b\u5361", level=2)
+    for line in [
+        f"Logline: {story_card.get('logline', '') or '-'}",
+        f"\u4e3b\u9898: {story_card.get('theme', '') or '-'}",
+        f"\u57fa\u8c03: {story_card.get('tone', '') or '-'}",
+        f"\u7ed3\u6784\u6a21\u677f: {story_card.get('structure_template', '') or '-'}",
+        f"\u6838\u5fc3\u51b2\u7a81: {story_card.get('core_conflict', '') or '-'}",
+        f"\u94a9\u5b50: {story_card.get('hook', '') or '-'}",
+        f"\u7ed3\u5c40\u7c7b\u578b: {story_card.get('ending_type', '') or '-'}",
+    ]:
+        doc.add_paragraph(line)
+    doc.add_paragraph("\u7ed3\u6784\u951a\u70b9:")
+    if story_card.get("anchor_points"):
+        for point in story_card.get("anchor_points", []):
+            doc.add_paragraph(point, style="List Bullet")
+    else:
+        doc.add_paragraph("\u65e0", style="List Bullet")
+
+    doc.add_heading("\u89d2\u8272\u8bbe\u5b9a", level=2)
+    if workshop.get("characters"):
+        for character in workshop.get("characters", []):
+            doc.add_paragraph(
+                f"{character.get('name') or '未命名角色'} | \u6807\u7b7e: {', '.join(character.get('tags', [])) or '-'} | \u52a8\u673a: {character.get('motivation', '') or '-'} | \u5f27\u5149: {character.get('arc', '') or '-'}",
+                style="List Bullet",
+            )
+    else:
+        doc.add_paragraph("\u65e0", style="List Bullet")
+
+    doc.add_heading("\u89d2\u8272\u5173\u7cfb", level=2)
+    if workshop.get("relationships"):
+        for relationship in workshop.get("relationships", []):
+            doc.add_paragraph(
+                f"{relationship.get('from', '-')} -> {relationship.get('to', '-')} | \u7c7b\u578b: {relationship.get('type', '') or '-'} | \u51b2\u7a81: {relationship.get('tension', '') or '-'}",
+                style="List Bullet",
+            )
+    else:
+        doc.add_paragraph("\u65e0", style="List Bullet")
+
+    doc.add_heading("\u5267\u60c5\u8282\u70b9", level=2)
+    if workshop.get("plot_nodes"):
+        for node in workshop.get("plot_nodes", []):
+            doc.add_paragraph(f"{node.get('id', '')} [{node.get('template_stage', '')}]", style="List Bullet")
+            for detail in [
+                f"\u6458\u8981: {node.get('summary', '') or '-'}",
+                f"\u5730\u70b9: {node.get('location', '') or '-'}",
+                f"\u52a8\u4f5c: {node.get('action_draft', '') or '-'}",
+                f"\u5bf9\u767d: {_dialogue_text(node.get('dialogue_draft'))}",
+                f"\u60c5\u611f\u53d8\u5316: {node.get('emotion_shift', '') or '-'}",
+                f"\u4e00\u81f4\u6027\u68c0\u67e5: {node.get('consistency_check', '') or '-'}",
+            ]:
+                doc.add_paragraph(detail)
+    else:
+        doc.add_paragraph("\u65e0", style="List Bullet")
+
+    doc.add_heading("\u65f6\u95f4\u7ebf\u987a\u5e8f", level=2)
+    if workshop.get("timeline_view"):
+        for node_id in workshop.get("timeline_view", []):
+            doc.add_paragraph(node_id, style="List Number")
+    else:
+        doc.add_paragraph("\u65e0", style="List Bullet")
+
+    doc.add_heading("\u5206\u955c\u8868", level=2)
+    table = doc.add_table(rows=1, cols=9)
+    headers = ["\u955c\u5934ID", "\u5173\u8054\u8282\u70b9", "\u666f\u522b", "\u8fd0\u955c", "\u65f6\u957f", "\u753b\u9762", "\u5bf9\u767d/\u97f3\u6548", "\u63d0\u793a\u8bcd", "\u5907\u6ce8"]
+    for index, header in enumerate(headers):
+        table.rows[0].cells[index].text = header
+    for shot in storyboard.get("storyboards", []):
+        row = table.add_row().cells
+        row[0].text = str(shot.get("shot_id", ""))
+        row[1].text = str(shot.get("related_node_id", ""))
+        row[2].text = str(shot.get("shot_type", ""))
+        row[3].text = str(shot.get("camera_movement", ""))
+        row[4].text = str(shot.get("duration_sec", ""))
+        row[5].text = str(shot.get("visual_description", ""))
+        row[6].text = str(shot.get("dialogue_or_sfx", ""))
+        row[7].text = str(shot.get("prompt_draft", ""))
+        row[8].text = str(shot.get("shooting_note", ""))
+    doc.add_paragraph(f"\u9884\u4f30\u603b\u65f6\u957f: {storyboard.get('estimated_total_duration_sec', 0)} \u79d2")
+    doc.add_paragraph(
+        "\u5bfc\u51fa\u524d\u68c0\u67e5\u6e05\u5355: "
+        + (", ".join(storyboard.get("export_ready_checklist", [])) if storyboard.get("export_ready_checklist") else "\u65e0")
+    )
+
+    doc.add_heading("\u89c6\u9891\u4efb\u52a1\u6458\u8981", level=2)
+    for line in [
+        f"\u5f53\u524d\u4efb\u52a1ID: {video_lab.get('task_id', '') or '-'}",
+        f"\u5f53\u524d\u4efb\u52a1\u72b6\u6001: {video_lab.get('task_status', '') or '-'}",
+        f"\u5f53\u524d\u89c6\u9891\u94fe\u63a5: {video_lab.get('video_url', '') or '-'}",
+        f"\u957f\u89c6\u9891\u603b\u65f6\u957f: {video_lab.get('total_duration', 0)} \u79d2",
+        f"\u6587\u4ef6\u540d\u524d\u7f00: {video_lab.get('filename_prefix', '') or '-'}",
+    ]:
+        doc.add_paragraph(line)
+    if video_lab.get("long_segments"):
+        for segment in video_lab.get("long_segments", []):
+            doc.add_paragraph(
+                f"\u7b2c{segment.get('index', '-')}段 | \u65f6\u957f: {segment.get('duration', 0)} \u79d2 | Task ID: {segment.get('task_id', '') or '-'} | \u72b6\u6001: {segment.get('task_status', '') or '-'}",
+                style="List Bullet",
+            )
+    else:
+        doc.add_paragraph("\u62c6\u6bb5\u4efb\u52a1: \u65e0", style="List Bullet")
 
     buffer = BytesIO()
     doc.save(buffer)
@@ -1050,7 +2002,6 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
 
 
 def _register_pdf_font() -> str:
-    """Use built-in CJK font to avoid local font file dependency."""
     try:
         pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
         return "STSong-Light"
@@ -1069,104 +2020,136 @@ def _draw_wrapped(
 
 
 def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
-    story_card = payload.get("story_card", {})
-    workshop = payload.get("workshop", {})
-    storyboard = payload.get("storyboard", {})
+    data = _normalize_export_payload(payload)
+    project = data["project"]
+    story_card = data["story_card"] or {}
+    workshop = data["workshop"] or {}
+    storyboard = data["storyboard"] or {}
+    video_lab = data["video_lab"] or _default_project_state()["video_lab"]
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     font_name = _register_pdf_font()
 
-    def ensure_space(y_pos: float, need: float = 28.0) -> float:
+    def ensure_space(y_pos: float, need: float = 40.0) -> float:
         if y_pos < need:
             c.showPage()
             c.setFont(font_name, 11)
             return height - 50
         return y_pos
 
+    def draw_section(title: str, items: List[str], y_pos: float) -> float:
+        y_pos = ensure_space(y_pos, 60)
+        c.setFont(font_name, 13)
+        c.drawString(40, y_pos, title)
+        y_pos -= 20
+        c.setFont(font_name, 11)
+        for item in items:
+            y_pos = ensure_space(y_pos)
+            y_pos = _draw_wrapped(c, item, font_name, 11, 50, y_pos, width - 90)
+        return y_pos - 8
+
     y = height - 50
     c.setFont(font_name, 16)
-    c.drawString(40, y, "AI短剧项目导出")
-    y -= 34
+    c.drawString(40, y, "\u77ed\u5267\u9879\u76ee\u5bfc\u51fa")
+    y -= 30
 
-    c.setFont(font_name, 13)
-    c.drawString(40, y, "1. 故事卡")
-    y -= 22
-    c.setFont(font_name, 11)
-    for line in [
-        f"Logline: {story_card.get('logline', '')}",
-        f"主题: {story_card.get('theme', '')}",
-        f"基调: {story_card.get('tone', '')}",
-        f"结构模板: {story_card.get('structure_template', '')}",
-        f"核心冲突: {story_card.get('core_conflict', '')}",
-    ]:
-        y = ensure_space(y)
-        y = _draw_wrapped(c, line, font_name, 11, 50, y, width - 90)
+    y = draw_section(
+        "\u9879\u76ee\u4fe1\u606f",
+        [
+            f"\u9879\u76ee\u540d\u79f0: {project.get('name') or '未命名项目'}",
+            f"\u521b\u5efa\u4eba: {project.get('creator', '') or '-'}",
+            f"\u9879\u76ee\u63cf\u8ff0: {project.get('description', '') or '-'}",
+            f"\u521b\u5efa\u65f6\u95f4: {project.get('created_at', '') or '-'}",
+            f"\u66f4\u65b0\u65f6\u95f4: {project.get('updated_at', '') or '-'}",
+            f"\u5bfc\u51fa\u65f6\u95f4: {data.get('exported_at', '') or '-'}",
+            f"\u5f53\u524d\u6a21\u578b: {data.get('current_provider', '') or '-'}",
+        ],
+        y,
+    )
 
-    y -= 8
-    y = ensure_space(y)
-    c.setFont(font_name, 13)
-    c.drawString(40, y, "2. 角色设定")
-    y -= 22
-    c.setFont(font_name, 11)
-    for ch in workshop.get("characters", []):
-        y = ensure_space(y)
-        text = (
-            f"- {ch.get('name', '未命名角色')} | 标签: {', '.join(ch.get('tags', []))} | "
-            f"动机: {ch.get('motivation', '')}"
-        )
-        y = _draw_wrapped(c, text, font_name, 11, 50, y, width - 90)
+    y = draw_section(
+        "\u6545\u4e8b\u5361",
+        [
+            f"Logline: {story_card.get('logline', '') or '-'}",
+            f"\u4e3b\u9898: {story_card.get('theme', '') or '-'}",
+            f"\u57fa\u8c03: {story_card.get('tone', '') or '-'}",
+            f"\u7ed3\u6784\u6a21\u677f: {story_card.get('structure_template', '') or '-'}",
+            f"\u6838\u5fc3\u51b2\u7a81: {story_card.get('core_conflict', '') or '-'}",
+            f"\u94a9\u5b50: {story_card.get('hook', '') or '-'}",
+            f"\u7ed3\u5c40\u7c7b\u578b: {story_card.get('ending_type', '') or '-'}",
+            "\u7ed3\u6784\u951a\u70b9: " + (", ".join(story_card.get("anchor_points", [])) if story_card.get("anchor_points") else "\u65e0"),
+        ],
+        y,
+    )
 
-    y -= 8
-    y = ensure_space(y)
-    c.setFont(font_name, 13)
-    c.drawString(40, y, "3. 情节脉络")
-    y -= 22
-    c.setFont(font_name, 11)
-    for n in workshop.get("plot_nodes", []):
-        y = ensure_space(y)
-        text = f"- {n.get('id', '')} [{n.get('template_stage', '')}] {n.get('summary', '')}"
-        y = _draw_wrapped(c, text, font_name, 11, 50, y, width - 90)
+    role_lines = [
+        f"- {character.get('name') or '未命名角色'} | \u6807\u7b7e: {', '.join(character.get('tags', [])) or '-'} | \u52a8\u673a: {character.get('motivation', '') or '-'} | \u5f27\u5149: {character.get('arc', '') or '-'}"
+        for character in workshop.get("characters", [])
+    ] or ["- \u65e0"]
+    y = draw_section("\u89d2\u8272\u8bbe\u5b9a", role_lines, y)
 
-    y -= 8
-    y = ensure_space(y)
-    c.setFont(font_name, 13)
-    c.drawString(40, y, "4. 分镜表")
-    y -= 22
-    c.setFont(font_name, 11)
-    for s in storyboard.get("storyboards", []):
-        y = ensure_space(y, 60)
-        c.drawString(50, y, f"{s.get('shot_id', '')} | 节点: {s.get('related_node_id', '')}")
-        y -= 16
-        y = _draw_wrapped(
-            c,
-            f"景别: {s.get('shot_type', '')}  运镜: {s.get('camera_movement', '')}",
-            font_name,
-            11,
-            60,
-            y,
-            width - 110,
+    relation_lines = [
+        f"- {relationship.get('from', '-')} -> {relationship.get('to', '-')} | \u7c7b\u578b: {relationship.get('type', '') or '-'} | \u51b2\u7a81: {relationship.get('tension', '') or '-'}"
+        for relationship in workshop.get("relationships", [])
+    ] or ["- \u65e0"]
+    y = draw_section("\u89d2\u8272\u5173\u7cfb", relation_lines, y)
+
+    plot_lines = []
+    for node in workshop.get("plot_nodes", []):
+        plot_lines.extend(
+            [
+                f"- {node.get('id', '')} [{node.get('template_stage', '')}]",
+                f"  \u6458\u8981: {node.get('summary', '') or '-'}",
+                f"  \u5730\u70b9: {node.get('location', '') or '-'}",
+                f"  \u52a8\u4f5c: {node.get('action_draft', '') or '-'}",
+                f"  \u5bf9\u767d: {_dialogue_text(node.get('dialogue_draft'))}",
+                f"  \u60c5\u611f\u53d8\u5316: {node.get('emotion_shift', '') or '-'}",
+                f"  \u4e00\u81f4\u6027\u68c0\u67e5: {node.get('consistency_check', '') or '-'}",
+            ]
         )
-        y = _draw_wrapped(
-            c,
-            f"画面: {s.get('visual_description', '')}",
-            font_name,
-            11,
-            60,
-            y,
-            width - 110,
+    if not plot_lines:
+        plot_lines = ["- \u65e0"]
+    y = draw_section("\u5267\u60c5\u8282\u70b9", plot_lines, y)
+
+    timeline_lines = [f"{index}. {node_id}" for index, node_id in enumerate(workshop.get("timeline_view", []), start=1)] or ["- \u65e0"]
+    y = draw_section("\u65f6\u95f4\u7ebf\u987a\u5e8f", timeline_lines, y)
+
+    storyboard_lines = []
+    for shot in storyboard.get("storyboards", []):
+        storyboard_lines.extend(
+            [
+                f"{shot.get('shot_id', '')} | \u8282\u70b9: {shot.get('related_node_id', '')} | \u666f\u522b: {shot.get('shot_type', '')} | \u8fd0\u955c: {shot.get('camera_movement', '')} | \u65f6\u957f: {shot.get('duration_sec', 0)}\u79d2",
+                f"\u753b\u9762: {shot.get('visual_description', '') or '-'}",
+                f"\u5bf9\u767d/\u97f3\u6548: {shot.get('dialogue_or_sfx', '') or '-'}",
+                f"\u63d0\u793a\u8bcd: {shot.get('prompt_draft', '') or '-'}",
+                f"\u5907\u6ce8: {shot.get('shooting_note', '') or '-'}",
+            ]
         )
-        y = _draw_wrapped(
-            c,
-            f"对白/音效: {s.get('dialogue_or_sfx', '')}  时长: {s.get('duration_sec', '')}秒",
-            font_name,
-            11,
-            60,
-            y,
-            width - 110,
-        )
-        y -= 8
+    if not storyboard_lines:
+        storyboard_lines = ["- \u65e0"]
+    storyboard_lines.append(f"\u9884\u4f30\u603b\u65f6\u957f: {storyboard.get('estimated_total_duration_sec', 0)} \u79d2")
+    storyboard_lines.append(
+        "\u68c0\u67e5\u6e05\u5355: " + (", ".join(storyboard.get("export_ready_checklist", [])) if storyboard.get("export_ready_checklist") else "\u65e0")
+    )
+    y = draw_section("\u5206\u955c\u8868", storyboard_lines, y)
+
+    video_lines = [
+        f"\u5f53\u524d\u4efb\u52a1ID: {video_lab.get('task_id', '') or '-'}",
+        f"\u5f53\u524d\u4efb\u52a1\u72b6\u6001: {video_lab.get('task_status', '') or '-'}",
+        f"\u5f53\u524d\u89c6\u9891\u94fe\u63a5: {video_lab.get('video_url', '') or '-'}",
+        f"\u957f\u89c6\u9891\u603b\u65f6\u957f: {video_lab.get('total_duration', 0)} \u79d2",
+        f"\u6587\u4ef6\u540d\u524d\u7f00: {video_lab.get('filename_prefix', '') or '-'}",
+    ]
+    if video_lab.get("long_segments"):
+        for segment in video_lab.get("long_segments", []):
+            video_lines.append(
+                f"\u7b2c{segment.get('index', '-')}段 | \u65f6\u957f: {segment.get('duration', 0)} \u79d2 | Task ID: {segment.get('task_id', '') or '-'} | \u72b6\u6001: {segment.get('task_status', '') or '-'}"
+            )
+    else:
+        video_lines.append("\u62c6\u6bb5\u4efb\u52a1: \u65e0")
+    y = draw_section("\u89c6\u9891\u4efb\u52a1\u6458\u8981", video_lines, y)
 
     c.save()
     buffer.seek(0)
@@ -1304,6 +2287,7 @@ def update_project(project_id: int):
                 state_obj = req_json.get("state")
                 if not isinstance(state_obj, dict):
                     return jsonify({"ok": False, "error": "state must be an object."}), 400
+                normalized_state = _normalize_project_state(state_obj)
                 conn.execute(
                     """
                     INSERT INTO project_states(project_id, state_json, updated_at)
@@ -1312,7 +2296,7 @@ def update_project(project_id: int):
                         state_json = excluded.state_json,
                         updated_at = excluded.updated_at
                     """,
-                    (project_id, json.dumps(state_obj, ensure_ascii=False), now),
+                    (project_id, json.dumps(normalized_state, ensure_ascii=False), now),
                 )
 
             conn.commit()
@@ -1371,6 +2355,7 @@ def put_project_state(project_id: int):
     state = req_json.get("state")
     if not isinstance(state, dict):
         return jsonify({"ok": False, "error": "state must be an object."}), 400
+    normalized_state = _normalize_project_state(state)
 
     try:
         with _get_db_conn() as conn:
@@ -1390,7 +2375,7 @@ def put_project_state(project_id: int):
                     state_json = excluded.state_json,
                     updated_at = excluded.updated_at
                 """,
-                (project_id, json.dumps(state, ensure_ascii=False), now),
+                (project_id, json.dumps(normalized_state, ensure_ascii=False), now),
             )
             conn.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
@@ -1448,6 +2433,13 @@ def compare_providers():
             else:
                 continue
 
+            if stage == "story_engine":
+                result = _normalize_story_engine_result(result)
+            elif stage == "workshop":
+                result = _normalize_workshop_result(result)
+            elif stage == "storyboard":
+                result = _normalize_storyboard_result(result)
+
             results[provider] = result
         except Exception as e:
             errors[provider] = str(e)
@@ -1497,6 +2489,15 @@ def run_agent_stage():
             )
         else:
             result = _export_markdown(payload)
+
+        if stage == "story_engine":
+            result = _normalize_story_engine_result(result)
+        elif stage == "workshop":
+            result = _normalize_workshop_result(result)
+        elif stage == "storyboard":
+            result = _normalize_storyboard_result(result)
+        elif stage == "command":
+            result = _normalize_command_result(result)
 
         return jsonify({"ok": True, "stage": stage, "provider": provider, "result": result})
     except requests.HTTPError as e:
