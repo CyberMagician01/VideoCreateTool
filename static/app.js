@@ -492,6 +492,7 @@ function renderProjectList() {
   list.innerHTML = projectsCache
     .map((p) => `
       <div class="project-card ${String(p.id) === String(currentProjectId) ? 'active' : ''}" data-project-id="${p.id}">
+        <button class="project-card-edit-btn" title="编辑项目" data-project-id="${p.id}">✎</button>
         ${getCoverHtml(p)}
         <div>
           <div class="project-card-title">${p.name || '未命名项目'}</div>
@@ -504,12 +505,28 @@ function renderProjectList() {
 
   const cards = list.querySelectorAll('.project-card');
   cards.forEach((card) => {
-    card.addEventListener('click', async () => {
+    card.addEventListener('click', async (e) => {
+      if (e.target.classList.contains('project-card-edit-btn')) {
+        e.stopPropagation();
+        return;
+      }
       const targetId = card.getAttribute('data-project-id');
       if (!targetId || String(targetId) === String(currentProjectId)) {
         return;
       }
       await switchProject(targetId);
+    });
+  });
+
+  const editBtns = list.querySelectorAll('.project-card-edit-btn');
+  editBtns.forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const projectId = btn.getAttribute('data-project-id');
+      const project = projectsCache.find(p => String(p.id) === String(projectId));
+      if (project) {
+        openEditProjectModal(project);
+      }
     });
   });
 }
@@ -702,6 +719,139 @@ function updateDrawerOpen(open) {
   }
   drawer.classList.toggle('open', projectDrawerOpen);
   drawer.setAttribute('aria-hidden', projectDrawerOpen ? 'false' : 'true');
+}
+
+function openEditProjectModal(project) {
+  const modal = bind('edit-project-modal');
+  if (!modal) {
+    return;
+  }
+  bind('edit-project-name').value = project.name || '';
+  bind('edit-project-creator').value = project.creator || '';
+  bind('edit-project-description').value = project.description || '';
+  modal.dataset.projectId = String(project.id);
+  modal.classList.add('show');
+}
+
+function closeEditProjectModal() {
+  const modal = bind('edit-project-modal');
+  if (modal) {
+    modal.classList.remove('show');
+  }
+}
+
+async function handleEditProjectSave() {
+  const modal = bind('edit-project-modal');
+  const projectId = modal.dataset.projectId;
+  if (!projectId) {
+    return;
+  }
+
+  const name = (bind('edit-project-name')?.value || '').trim();
+  const creator = (bind('edit-project-creator')?.value || '').trim();
+  const description = (bind('edit-project-description')?.value || '').trim();
+
+  if (!name) {
+    alert('项目名称不能为空');
+    return;
+  }
+
+  try {
+    const data = await fetchJson(`/api/projects/${projectId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        creator,
+        description,
+      }),
+    });
+
+    if (!data.ok) {
+      alert(`保存失败: ${data.error}`);
+      return;
+    }
+
+    closeEditProjectModal();
+    await loadProjects();
+    if (String(projectId) === String(currentProjectId)) {
+      currentProjectMeta = data.project || currentProjectMeta;
+      renderProjectMeta();
+    }
+    setSnapshotStatus('项目信息已更新');
+  } catch (err) {
+    console.error('编辑项目失败', err);
+    alert(`编辑失败: ${err.message}`);
+  }
+}
+
+function bindEditProjectActions() {
+  const modal = bind('edit-project-modal');
+  const btnCancel = bind('btn-edit-cancel');
+  const btnSave = bind('btn-edit-save');
+
+  if (!modal || !btnCancel || !btnSave) {
+    return;
+  }
+
+  btnCancel.addEventListener('click', () => {
+    closeEditProjectModal();
+  });
+
+  btnSave.addEventListener('click', async () => {
+    await handleEditProjectSave();
+  });
+
+  const form = bind('edit-project-form');
+  if (form) {
+    form.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' && e.ctrlKey) {
+        handleEditProjectSave();
+      }
+    });
+  }
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeEditProjectModal();
+    }
+  });
+}
+
+function initProjectDrawerDrag() {
+  const btn = bind('btn-project-drawer');
+  if (!btn) {
+    return;
+  }
+
+  let isDragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  btn.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    const rect = btn.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    btn.style.transition = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) {
+      return;
+    }
+    const newLeft = e.clientX - offsetX;
+    const newTop = e.clientY - offsetY;
+    btn.style.left = Math.max(0, Math.min(newLeft, window.innerWidth - 60)) + 'px';
+    btn.style.top = Math.max(0, Math.min(newTop, window.innerHeight - 60)) + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      btn.style.transition = 'box-shadow 0.2s ease, transform 0.2s ease';
+    }
+  });
 }
 
 async function ensureProjectExistsAndLoad() {
@@ -909,6 +1059,20 @@ function bindProjectDrawerActions() {
       } catch (err) {
         console.error(err);
         setSnapshotStatus(`刷新快照失败: ${err.message}`);
+      }
+    });
+  }
+
+  const drawer = bind('project-drawer');
+  if (drawer && btnToggle) {
+    document.addEventListener('click', (e) => {
+      if (!projectDrawerOpen) {
+        return;
+      }
+      const isClickInsideDrawer = drawer.contains(e.target);
+      const isClickOnToggleBtn = btnToggle.contains(e.target);
+      if (!isClickInsideDrawer && !isClickOnToggleBtn) {
+        updateDrawerOpen(false);
       }
     });
   }
@@ -2388,6 +2552,8 @@ async function initProjectContext() {
 
 async function initApp() {
   bindProjectDrawerActions();
+  initProjectDrawerDrag();
+  bindEditProjectActions();
   bindWorkshopActions();
   bindVisualActions();
   bindExportActions();

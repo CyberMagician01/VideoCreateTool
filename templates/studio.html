@@ -53,6 +53,30 @@
       </section>
     </aside>
 
+    <div id="edit-project-modal" class="edit-project-modal">
+      <div class="edit-project-dialog">
+        <h3>编辑项目信息</h3>
+        <form class="edit-project-form" id="edit-project-form">
+          <div class="form-group">
+            <label for="edit-project-name">项目名称</label>
+            <input type="text" id="edit-project-name" placeholder="输入项目名称" required>
+          </div>
+          <div class="form-group">
+            <label for="edit-project-creator">创建人</label>
+            <input type="text" id="edit-project-creator" placeholder="输入创建人名称">
+          </div>
+          <div class="form-group">
+            <label for="edit-project-description">项目描述</label>
+            <textarea id="edit-project-description" placeholder="输入项目描述（可选）"></textarea>
+          </div>
+          <div class="edit-project-actions">
+            <button type="button" class="btn-cancel" id="btn-edit-cancel">取消</button>
+            <button type="button" class="btn-save" id="btn-edit-save">保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <main class="container">
       <nav class="top-nav">
         <a href="/" class="brand">短剧智能体</a>
