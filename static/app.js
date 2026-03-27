@@ -1064,12 +1064,40 @@ function startVideoPolling() {
 }
 
 async function runStage(stage, payload, provider = null) {
-  const resp = await fetch('/api/agent/run', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stage, payload, provider: provider || currentProvider }),
-  });
-  return resp.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  try {
+    const resp = await fetch('/api/agent/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage, payload, provider: provider || currentProvider }),
+      signal: controller.signal,
+    });
+
+    const raw = await resp.text();
+    let data = null;
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch (err) {
+      throw new Error(`接口返回非 JSON（HTTP ${resp.status}）`);
+    }
+
+    if (!resp.ok) {
+      return {
+        ok: false,
+        error: data?.error || `请求失败（HTTP ${resp.status}）`,
+        detail: data?.detail || '',
+      };
+    }
+    return data;
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      return { ok: false, error: '请求超时（90秒），请稍后重试', detail: '' };
+    }
+    return { ok: false, error: err?.message || String(err), detail: '' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function downloadFile(url, filename, payload) {
@@ -1924,16 +1952,16 @@ function renderLongSegmentsList() {
 
   box.style.display = 'block';
 
-  let html = '<h3>?????????</h3>';
-  html += '<p class="hint">????????????????????????</p>';
+  let html = '<h3>长视频分段任务</h3>';
+  html += '<p class="hint">可以逐段查询任务状态，若已生成视频会自动支持预览。</p>';
   html += '<ul class="segment-list">';
   segments.forEach((seg) => {
     const shortPrompt = String(seg.prompt || '').slice(0, 60);
     html += `
       <li style="margin-bottom:8px;">
-        <div><strong>? ${seg.index} ?</strong> | ?? ${seg.duration} ? | Task ID: ${seg.task_id || '-'} | ??: ${seg.task_status || 'PENDING'}</div>
-        <div style="font-size:12px; color:var(--muted);">???: ${shortPrompt}${seg.prompt && seg.prompt.length > 60 ? '...' : ''}</div>
-        ${seg.task_id ? `<button data-task-id="${seg.task_id}" data-index="${seg.index}" class="btn-seg-play">????????</button>` : ''}
+        <div><strong>第 ${seg.index} 段</strong> | 时长 ${seg.duration} 秒 | Task ID: ${seg.task_id || '-'} | 状态: ${seg.task_status || 'PENDING'}</div>
+        <div style="font-size:12px; color:var(--muted);">提示词: ${shortPrompt}${seg.prompt && seg.prompt.length > 60 ? '...' : ''}</div>
+        ${seg.task_id ? `<button data-task-id="${seg.task_id}" data-index="${seg.index}" class="btn-seg-play">查询并播放</button>` : ''}
       </li>`;
   });
   html += '</ul>';
@@ -1949,12 +1977,12 @@ function renderLongSegmentsList() {
         return;
       }
 
-      updateOutput('video-task-output', `????? ${idx} ??? ${taskId} ...`);
+      updateOutput('video-task-output', `正在查询第 ${idx} 段任务 ${taskId} ...`);
 
       try {
         const data = await fetchJson(`/api/video/task/${taskId}`, { method: 'GET' });
         if (!data.ok) {
-          updateOutput('video-task-output', `??: ${data.error}
+          updateOutput('video-task-output', `错误: ${data.error}
 ${data.detail || ''}`);
           return;
         }
@@ -1963,8 +1991,8 @@ ${data.detail || ''}`);
         const status = output.task_status || output.status || 'UNKNOWN';
         const url = output.video_url || output.url || output?.result?.video?.url || '';
 
-        updateOutput('video-task-output', `? ${idx} ??? ${taskId}
-??: ${status}`);
+        updateOutput('video-task-output', `第 ${idx} 段任务 ${taskId}
+状态: ${status}`);
 
         const currentVideo = getVideoState();
         let changed = false;
@@ -1989,21 +2017,42 @@ ${data.detail || ''}`);
           renderVideoResult(url);
         }
       } catch (err) {
-        updateOutput('video-task-output', `??: ${err.message}`);
+        updateOutput('video-task-output', `错误: ${err.message}`);
       }
     });
   });
 }
 
 async function fetchJson(url, options) {
-  const resp = await fetch(url, options);
-  const data = await resp.json();
-  return data;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  try {
+    const resp = await fetch(url, { ...(options || {}), signal: controller.signal });
+    const raw = await resp.text();
+    if (!raw) {
+      return {};
+    }
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      throw new Error(`接口返回非 JSON（HTTP ${resp.status}）`);
+    }
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error('请求超时（90秒），请稍后重试');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function extractPromptFromScript(scriptText) {
-  const marker = '???????';
-  const idx = scriptText.indexOf(marker);
+  const markers = ['视频提示词', '视频生成提示词', '文生视频提示词'];
+  const idx = markers
+    .map((m) => scriptText.indexOf(m))
+    .filter((n) => n >= 0)
+    .sort((a, b) => a - b)[0] ?? -1;
   if (idx < 0) {
     return scriptText.slice(0, 600);
   }
