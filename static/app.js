@@ -1598,7 +1598,7 @@ function formatWorkshopResult(ws) {
     lines.push('-');
   }
 
-  return lines.join('\\n').trim();
+  return lines.join('\n').replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t').trim();
 }
 
 function formatStoryboardResult(sb) {
@@ -1622,7 +1622,7 @@ function formatStoryboardResult(sb) {
     lines.push(`\u9884\u4f30\u603b\u65f6\u957f: ${storyboard.estimated_total_duration_sec} \u79d2`);
   }
 
-  return lines.join('\\n').trim();
+  return lines.join('\n').replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t').trim();
 }
 
 function bindWorkshopActions() {
