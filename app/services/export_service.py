@@ -1,11 +1,12 @@
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, List
 
 from docx import Document
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import simpleSplit
 from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from app.utils.helpers import (
@@ -17,26 +18,70 @@ from app.utils.helpers import (
 )
 from app.utils.normalizers import (
     _normalize_story_card,
-    _normalize_workshop_result,
     _normalize_storyboard_result,
     _normalize_video_lab_state,
+    _normalize_workshop_result,
 )
+
+
+def _dialogue_text(dialogue: Any) -> str:
+    values = _string_list(dialogue)
+    return " / ".join(values) if values else "-"
+
+
 def _register_pdf_font() -> str:
-    try:
-        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-        return "STSong-Light"
-    except Exception:
-        return "Helvetica"
+    """
+    注册 PDF 中文字体。
+    优先顺序：
+    1. 项目根目录 fonts/NotoSansSC-Regular.ttf
+    2. Windows 常见中文字体
+    找不到时直接报错，避免生成“看起来空白”的 PDF。
+    """
+    project_root = Path(__file__).resolve().parents[2]
+
+    candidate_paths = [
+        project_root / "fonts" / "NotoSansSC-Regular.ttf",
+        Path(r"C:\Windows\Fonts\simhei.ttf"),
+        Path(r"C:\Windows\Fonts\msyh.ttc"),
+        Path(r"C:\Windows\Fonts\simsun.ttc"),
+    ]
+
+    font_name = "PDF_CJK_FONT"
+
+    for font_path in candidate_paths:
+        if font_path.exists():
+            try:
+                pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+                return font_name
+            except Exception:
+                continue
+
+    raise RuntimeError(
+        "未找到可用的中文 PDF 字体。"
+        "请在项目根目录新建 fonts 文件夹，并放入 NotoSansSC-Regular.ttf，"
+        "或确认系统存在可用中文字体。"
+    )
 
 
 def _draw_wrapped(
-    c: canvas.Canvas, text: str, font_name: str, font_size: int, x: float, y: float, width: float
+    pdf: canvas.Canvas,
+    text: str,
+    font_name: str,
+    font_size: int,
+    x: float,
+    y: float,
+    width: float,
 ) -> float:
+    """
+    在 PDF 中按宽度自动换行绘制文本，返回绘制后的新 y 坐标。
+    """
     lines = simpleSplit(str(text), font_name, font_size, width)
     for line in lines:
-        c.drawString(x, y, line)
+        pdf.drawString(x, y, line)
         y -= font_size + 4
     return y
+
+
 def _normalize_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     project = payload.get("project", {}) if isinstance(payload, dict) else {}
     if not isinstance(project, dict):
@@ -73,8 +118,10 @@ def _export_markdown(payload: Dict[str, Any]) -> Dict[str, Any]:
     video_lab = data["video_lab"] or _default_project_state()["video_lab"]
 
     lines: List[str] = []
+
     lines.append("# AI短剧项目导出")
     lines.append("")
+
     lines.append("## 0. 项目信息")
     lines.append(f"- 项目名称: {project.get('name', '未命名项目')}")
     lines.append(f"- 创建人: {project.get('creator', '') or '-'}")
@@ -223,6 +270,7 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
         f"结局类型: {story_card.get('ending_type', '') or '-'}",
     ]:
         doc.add_paragraph(line)
+
     doc.add_paragraph("结构锚点:")
     if story_card.get("anchor_points"):
         for point in story_card.get("anchor_points", []):
@@ -278,6 +326,7 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
     headers = ["镜头ID", "关联节点", "景别", "运镜", "时长", "画面", "对白/音效", "提示词", "备注"]
     for index, header in enumerate(headers):
         table.rows[0].cells[index].text = header
+
     for shot in storyboard.get("storyboards", []):
         row = table.add_row().cells
         row[0].text = str(shot.get("shot_id", ""))
@@ -289,6 +338,7 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
         row[6].text = str(shot.get("dialogue_or_sfx", ""))
         row[7].text = str(shot.get("prompt_draft", ""))
         row[8].text = str(shot.get("shooting_note", ""))
+
     doc.add_paragraph(f"预估总时长: {storyboard.get('estimated_total_duration_sec', 0)} 秒")
     doc.add_paragraph(
         "导出前检查清单: "
@@ -304,6 +354,7 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
         f"文件名前缀: {video_lab.get('filename_prefix', '') or '-'}",
     ]:
         doc.add_paragraph(line)
+
     if video_lab.get("long_segments"):
         for segment in video_lab.get("long_segments", []):
             doc.add_paragraph(
@@ -328,31 +379,32 @@ def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
     video_lab = data["video_lab"] or _default_project_state()["video_lab"]
 
     buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
+    pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     font_name = _register_pdf_font()
 
     def ensure_space(y_pos: float, need: float = 40.0) -> float:
         if y_pos < need:
-            c.showPage()
-            c.setFont(font_name, 11)
+            pdf.showPage()
+            pdf.setFont(font_name, 11)
             return height - 50
         return y_pos
 
     def draw_section(title: str, lines: List[str], y_pos: float) -> float:
         y_pos = ensure_space(y_pos, 60)
-        c.setFont(font_name, 13)
-        c.drawString(40, y_pos, title)
+        pdf.setFont(font_name, 13)
+        pdf.drawString(40, y_pos, title)
         y_pos -= 20
-        c.setFont(font_name, 11)
+
+        pdf.setFont(font_name, 11)
         for line in lines:
             y_pos = ensure_space(y_pos)
-            y_pos = _draw_wrapped(c, line, font_name, 11, 50, y_pos, width - 90)
+            y_pos = _draw_wrapped(pdf, line, font_name, 11, 50, y_pos, width - 90)
         return y_pos - 8
 
     y = height - 50
-    c.setFont(font_name, 16)
-    c.drawString(40, y, "AI短剧项目导出")
+    pdf.setFont(font_name, 16)
+    pdf.drawString(40, y, "AI短剧项目导出")
     y -= 30
 
     y = draw_section(
@@ -396,7 +448,7 @@ def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
     ] or ["- 无"]
     y = draw_section("3. 角色关系", relation_lines, y)
 
-    plot_lines = []
+    plot_lines: List[str] = []
     for node in workshop.get("plot_nodes", []):
         plot_lines.extend(
             [
@@ -413,10 +465,13 @@ def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
         plot_lines = ["- 无"]
     y = draw_section("4. 剧情节点", plot_lines, y)
 
-    timeline_lines = [f"{index}. {node_id}" for index, node_id in enumerate(workshop.get("timeline_view", []), start=1)] or ["- 无"]
+    timeline_lines = [
+        f"{index}. {node_id}"
+        for index, node_id in enumerate(workshop.get("timeline_view", []), start=1)
+    ] or ["- 无"]
     y = draw_section("5. 时间线顺序", timeline_lines, y)
 
-    storyboard_lines = []
+    storyboard_lines: List[str] = []
     for shot in storyboard.get("storyboards", []):
         storyboard_lines.extend(
             [
@@ -452,12 +507,6 @@ def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
         video_lines.append("拆段任务: 无")
     y = draw_section("7. 视频任务摘要", video_lines, y)
 
-    c.save()
+    pdf.save()
     buffer.seek(0)
     return buffer
-
-
-def _dialogue_text(dialogue: Any) -> str:
-    values = _string_list(dialogue)
-    return " / ".join(values) if values else "-"
-
