@@ -29,6 +29,8 @@
       <div class="project-drawer-tools">
         <button id="btn-new-project">新建项目</button>
         <button id="btn-delete-project" class="danger">删除当前项目</button>
+        <button id="btn-duplicate-project" class="secondary">复制当前项目</button>
+        <button id="btn-save-snapshot" class="secondary">保存快照</button>
       </div>
 
       <div id="project-current-meta" class="project-current-meta">
@@ -38,6 +40,17 @@
       <div id="project-save-status" class="project-save-status hint"></div>
 
       <div id="project-list" class="project-list"></div>
+
+      <section class="project-snapshot-panel">
+        <div class="project-snapshot-head">
+          <h4>项目快照</h4>
+          <button id="btn-refresh-snapshots" class="secondary">刷新</button>
+        </div>
+        <div id="project-snapshot-status" class="hint"></div>
+        <div id="project-snapshot-list" class="project-snapshot-list">
+          <p class="hint">暂无快照</p>
+        </div>
+      </section>
     </aside>
 
     <main class="container">

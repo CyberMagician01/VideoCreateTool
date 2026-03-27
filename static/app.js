@@ -323,6 +323,7 @@ let currentProvider = loadProvider();
 let currentProjectId = loadCurrentProjectId();
 let currentProjectMeta = null;
 let projectsCache = [];
+let snapshotCache = [];
 let saveDebounceTimer = null;
 let stateDirty = false;
 let projectSaveInFlight = false;
@@ -513,6 +514,176 @@ function renderProjectList() {
   });
 }
 
+function setSnapshotStatus(text = '') {
+  const target = bind('project-snapshot-status');
+  if (target) {
+    target.textContent = text;
+  }
+}
+
+function formatDateTimeText(value) {
+  const text = toText(value);
+  if (!text) {
+    return '-';
+  }
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function renderSnapshotList() {
+  const list = bind('project-snapshot-list');
+  if (!list) {
+    return;
+  }
+
+  if (!snapshotCache.length) {
+    list.innerHTML = '<p class="hint">暂无快照</p>';
+    return;
+  }
+
+  list.innerHTML = snapshotCache
+    .map((snapshot) => `
+      <article class="snapshot-card">
+        <h5>${snapshot.name || '未命名快照'}</h5>
+        <div class="snapshot-meta">创建时间：${formatDateTimeText(snapshot.created_at)}</div>
+        <div class="snapshot-meta">来源更新时间：${formatDateTimeText(snapshot.source_updated_at)}</div>
+        <div class="snapshot-meta">${snapshot.description || '无描述'}</div>
+        <div class="snapshot-actions">
+          <button class="secondary" data-action="restore" data-snapshot-id="${snapshot.id}">回滚到此快照</button>
+        </div>
+      </article>
+    `)
+    .join('');
+
+  list.querySelectorAll('[data-action="restore"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const snapshotId = button.getAttribute('data-snapshot-id');
+      if (!snapshotId) {
+        return;
+      }
+      try {
+        await restoreSnapshot(snapshotId);
+      } catch (err) {
+        console.error(err);
+        setSnapshotStatus(`回滚失败: ${err.message}`);
+      }
+    });
+  });
+}
+
+async function loadProjectSnapshots(projectId = currentProjectId) {
+  const list = bind('project-snapshot-list');
+  if (!list) {
+    return [];
+  }
+  if (!projectId) {
+    snapshotCache = [];
+    renderSnapshotList();
+    return snapshotCache;
+  }
+
+  const data = await fetchJson(`/api/projects/${projectId}/snapshots`, { method: 'GET' });
+  if (!data.ok) {
+    throw new Error(data.error || '加载项目快照失败');
+  }
+
+  snapshotCache = data.snapshots || [];
+  renderSnapshotList();
+  return snapshotCache;
+}
+
+async function duplicateCurrentProject() {
+  if (!currentProjectId) {
+    return;
+  }
+
+  await saveProjectStateNow();
+  const currentName = currentProjectMeta?.name || '未命名项目';
+  const name = window.prompt('请输入副本名称：', `${currentName} - 副本`);
+  if (name === null) {
+    return;
+  }
+
+  const data = await fetchJson(`/api/projects/${currentProjectId}/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name.trim() }),
+  });
+  if (!data.ok) {
+    throw new Error(data.error || '复制项目失败');
+  }
+
+  await loadProjects();
+  if (data.project?.id) {
+    await switchProject(String(data.project.id), { skipSaveCurrent: true });
+  }
+  setSnapshotStatus('项目副本已创建');
+}
+
+async function createSnapshotFromDialog() {
+  if (!currentProjectId) {
+    return;
+  }
+
+  await saveProjectStateNow();
+  const defaultName = `手动快照 ${new Date().toLocaleString('zh-CN', { hour12: false }).replace(/[/:]/g, '-')}`;
+  const name = window.prompt('请输入快照名称：', defaultName);
+  if (name === null) {
+    return;
+  }
+  const description = window.prompt('请输入快照说明（可选）：', '') || '';
+
+  const data = await fetchJson(`/api/projects/${currentProjectId}/snapshots`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: name.trim(),
+      description: description.trim(),
+      state,
+    }),
+  });
+  if (!data.ok) {
+    throw new Error(data.error || '保存快照失败');
+  }
+
+  snapshotCache = data.snapshots || [];
+  renderSnapshotList();
+  setSnapshotStatus('快照已保存');
+}
+
+async function restoreSnapshot(snapshotId) {
+  if (!currentProjectId || !snapshotId) {
+    return;
+  }
+
+  await saveProjectStateNow();
+  const ok = window.confirm('回滚会覆盖当前项目状态，但系统会自动保存一份保护快照。确定继续吗？');
+  if (!ok) {
+    return;
+  }
+
+  const data = await fetchJson(`/api/projects/${currentProjectId}/snapshots/${snapshotId}/restore`, {
+    method: 'POST',
+  });
+  if (!data.ok) {
+    throw new Error(data.error || '回滚快照失败');
+  }
+
+  snapshotCache = data.snapshots || [];
+  renderSnapshotList();
+  await switchProject(String(currentProjectId), { skipSaveCurrent: true });
+  setSnapshotStatus(`已回滚到快照：${data.snapshot?.name || snapshotId}`);
+}
+
 async function loadProjects() {
   const data = await fetchJson('/api/projects', { method: 'GET' });
   if (!data.ok) {
@@ -611,6 +782,13 @@ async function switchProject(projectId, opts = {}) {
   refreshVisualEditors();
   renderProjectMeta();
   await loadProjects();
+  try {
+    await loadProjectSnapshots(currentProjectId);
+    setSnapshotStatus('');
+  } catch (err) {
+    console.error('loadProjectSnapshots failed', err);
+    setSnapshotStatus(`快照加载失败: ${err.message}`);
+  }
 }
 
 async function createProjectFromDialog() {
@@ -669,6 +847,9 @@ function bindProjectDrawerActions() {
   const btnClose = bind('btn-project-drawer-close');
   const btnNew = bind('btn-new-project');
   const btnDelete = bind('btn-delete-project');
+  const btnDuplicate = bind('btn-duplicate-project');
+  const btnSaveSnapshot = bind('btn-save-snapshot');
+  const btnRefreshSnapshots = bind('btn-refresh-snapshots');
 
   if (btnToggle) {
     btnToggle.addEventListener('click', () => {
@@ -697,6 +878,37 @@ function bindProjectDrawerActions() {
       } catch (err) {
         console.error(err);
         alert(`删除项目失败: ${err.message}`);
+      }
+    });
+  }
+  if (btnDuplicate) {
+    btnDuplicate.addEventListener('click', async () => {
+      try {
+        await duplicateCurrentProject();
+      } catch (err) {
+        console.error(err);
+        setSnapshotStatus(`复制项目失败: ${err.message}`);
+      }
+    });
+  }
+  if (btnSaveSnapshot) {
+    btnSaveSnapshot.addEventListener('click', async () => {
+      try {
+        await createSnapshotFromDialog();
+      } catch (err) {
+        console.error(err);
+        setSnapshotStatus(`保存快照失败: ${err.message}`);
+      }
+    });
+  }
+  if (btnRefreshSnapshots) {
+    btnRefreshSnapshots.addEventListener('click', async () => {
+      try {
+        await loadProjectSnapshots();
+        setSnapshotStatus('快照列表已刷新');
+      } catch (err) {
+        console.error(err);
+        setSnapshotStatus(`刷新快照失败: ${err.message}`);
       }
     });
   }
