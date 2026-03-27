@@ -16,59 +16,6 @@
     <div class="bg-shape bg-shape-1"></div>
     <div class="bg-shape bg-shape-2"></div>
 
-    <button id="btn-project-drawer" class="project-drawer-toggle" title="管理项目" aria-label="管理项目">
-      项
-    </button>
-
-    <aside id="project-drawer" class="project-drawer" aria-hidden="true">
-      <div class="project-drawer-head">
-        <h3>项目管理</h3>
-        <button id="btn-project-drawer-close" class="project-drawer-close">关闭</button>
-      </div>
-
-      <div class="project-drawer-tools">
-        <button id="btn-new-project">新建项目</button>
-        <button id="btn-delete-project" class="danger">删除当前项目</button>
-      </div>
-
-      <div id="project-current-meta" class="project-current-meta">
-        <p class="hint">当前项目信息将在这里显示。</p>
-      </div>
-
-      <div id="project-save-status" class="project-save-status hint"></div>
-
-      <div id="project-list" class="project-list"></div>
-    </aside>
-
-    <!-- 项目编辑对话框 -->
-    <div id="edit-project-modal" class="edit-project-modal" aria-hidden="true">
-      <div class="edit-project-modal-backdrop"></div>
-      <div class="edit-project-modal-content">
-        <div class="edit-project-modal-header">
-          <h2>编辑项目信息</h2>
-          <button id="edit-project-close" class="edit-project-close" aria-label="关闭">×</button>
-        </div>
-        <div class="edit-project-modal-body">
-          <div class="form-group">
-            <label for="edit-project-name">项目名称</label>
-            <input id="edit-project-name" type="text" placeholder="请输入项目名称" />
-          </div>
-          <div class="form-group">
-            <label for="edit-project-creator">创建人</label>
-            <input id="edit-project-creator" type="text" placeholder="请输入创建人" />
-          </div>
-          <div class="form-group">
-            <label for="edit-project-description">项目描述</label>
-            <textarea id="edit-project-description" placeholder="请输入项目描述（可选）"></textarea>
-          </div>
-        </div>
-        <div class="edit-project-modal-footer">
-          <button id="edit-project-cancel" class="secondary">取消</button>
-          <button id="edit-project-save">保存</button>
-        </div>
-      </div>
-    </div>
-
     <main class="container">
       <nav class="top-nav">
         <a href="/" class="brand">短剧智能体</a>

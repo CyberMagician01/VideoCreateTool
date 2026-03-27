@@ -38,6 +38,286 @@ function saveCurrentProjectId(projectId) {
   localStorage.setItem(CURRENT_PROJECT_KEY, String(projectId || ''));
 }
 
+function toText(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return String(value).trim();
+}
+
+function normalizeStringList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => toText(item))
+      .filter(Boolean);
+  }
+  const text = toText(value);
+  return text ? [text] : [];
+}
+
+function toInt(value, fallback = 0, minimum = null) {
+  const parsed = Number.parseInt(value, 10);
+  let result = Number.isFinite(parsed) ? parsed : fallback;
+  if (minimum !== null) {
+    result = Math.max(minimum, result);
+  }
+  return result;
+}
+
+function normalizeStoryCard(storyCard) {
+  if (!storyCard || typeof storyCard !== 'object') {
+    return null;
+  }
+
+  const normalized = {
+    logline: toText(storyCard.logline),
+    theme: toText(storyCard.theme),
+    tone: toText(storyCard.tone),
+    structure_template: toText(storyCard.structure_template),
+    core_conflict: toText(storyCard.core_conflict),
+    anchor_points: normalizeStringList(storyCard.anchor_points),
+    hook: toText(storyCard.hook),
+    ending_type: toText(storyCard.ending_type),
+  };
+
+  if (
+    normalized.logline ||
+    normalized.theme ||
+    normalized.tone ||
+    normalized.structure_template ||
+    normalized.core_conflict ||
+    normalized.anchor_points.length ||
+    normalized.hook ||
+    normalized.ending_type
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeWorkshopData(workshop) {
+  if (!workshop || typeof workshop !== 'object') {
+    return null;
+  }
+
+  const characters = Array.isArray(workshop.characters)
+    ? workshop.characters
+        .map((character) => {
+          if (!character || typeof character !== 'object') {
+            return null;
+          }
+          const normalized = {
+            name: toText(character.name || character.character_name),
+            tags: normalizeStringList(character.tags || character.labels),
+            motivation: toText(character.motivation || character.goal),
+            arc: toText(character.arc || character.character_arc),
+          };
+          return normalized.name ? normalized : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  const relationships = Array.isArray(workshop.relationships)
+    ? workshop.relationships
+        .map((relationship) => {
+          if (!relationship || typeof relationship !== 'object') {
+            return null;
+          }
+          const normalized = {
+            from: toText(relationship.from || relationship.source || relationship.from_character),
+            to: toText(relationship.to || relationship.target || relationship.to_character),
+            type: toText(relationship.type || relationship.relationship || relationship.relation),
+            tension: toText(relationship.tension || relationship.conflict),
+          };
+          return normalized.from && normalized.to ? normalized : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  const plotNodes = Array.isArray(workshop.plot_nodes)
+    ? workshop.plot_nodes
+        .map((node, index) => {
+          if (!node || typeof node !== 'object') {
+            return null;
+          }
+          const normalized = {
+            id: toText(node.id || node.node_id) || `N${index + 1}`,
+            template_stage: toText(node.template_stage || node.phase || node.stage),
+            summary: toText(node.summary || node.plot || node.content || node.scene_summary),
+            location: toText(node.location || node.scene_location),
+            action_draft: toText(node.action_draft || node.action || node.action_description),
+            dialogue_draft: normalizeStringList(node.dialogue_draft || node.dialogue || node.dialogues),
+            emotion_shift: toText(node.emotion_shift || node.emotional_shift || node.emotion),
+            consistency_check: toText(node.consistency_check || node.logic_check || node.consistency),
+          };
+          return (
+            normalized.template_stage ||
+            normalized.summary ||
+            normalized.location ||
+            normalized.action_draft ||
+            normalized.dialogue_draft.length ||
+            normalized.emotion_shift ||
+            normalized.consistency_check
+          )
+            ? normalized
+            : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  const availableIds = new Set(plotNodes.map((node) => node.id));
+  let timelineView = normalizeStringList(workshop.timeline_view).filter((id) => availableIds.has(id));
+  if (!timelineView.length) {
+    timelineView = plotNodes.map((node) => node.id);
+  }
+
+  const cardWallGroups = Array.isArray(workshop.card_wall_groups)
+    ? workshop.card_wall_groups
+        .map((group) => {
+          if (!group || typeof group !== 'object') {
+            return null;
+          }
+          const normalized = {
+            group: toText(group.group || group.name || group.title),
+            node_ids: normalizeStringList(group.node_ids || group.ids).filter((id) => availableIds.has(id)),
+          };
+          return normalized.group || normalized.node_ids.length ? normalized : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  if (characters.length || relationships.length || plotNodes.length || cardWallGroups.length) {
+    return {
+      characters,
+      relationships,
+      plot_nodes: plotNodes,
+      timeline_view: timelineView,
+      card_wall_groups: cardWallGroups,
+    };
+  }
+  return null;
+}
+
+function deriveStoryboardPrompt(shot) {
+  return [
+    toText(shot.shot_type),
+    toText(shot.camera_movement),
+    toText(shot.visual_description),
+    toText(shot.dialogue_or_sfx),
+  ]
+    .filter(Boolean)
+    .join(' | ');
+}
+
+function normalizeStoryboardData(storyboard) {
+  if (!storyboard || typeof storyboard !== 'object') {
+    return null;
+  }
+
+  const storyboards = Array.isArray(storyboard.storyboards)
+    ? storyboard.storyboards
+        .map((shot, index) => {
+          if (!shot || typeof shot !== 'object') {
+            return null;
+          }
+          const normalized = {
+            shot_id: toText(shot.shot_id || shot.id) || `S${index + 1}`,
+            related_node_id: toText(shot.related_node_id || shot.node_id || shot.plot_node_id),
+            shot_type: toText(shot.shot_type || shot.camera_size),
+            camera_movement: toText(shot.camera_movement || shot.movement || shot.camera_motion),
+            visual_description: toText(
+              shot.visual_description || shot.visual || shot.image_description || shot.description,
+            ),
+            dialogue_or_sfx: toText(shot.dialogue_or_sfx || shot.dialogue || shot.sound_design || shot.audio),
+            duration_sec: toInt(shot.duration_sec || shot.duration || shot.estimated_duration, 4, 1),
+            shooting_note: toText(shot.shooting_note || shot.note || shot.production_note),
+            prompt_draft: toText(shot.prompt_draft || shot.video_prompt || shot.prompt || shot.visual_prompt),
+          };
+          if (!normalized.prompt_draft) {
+            normalized.prompt_draft = deriveStoryboardPrompt(normalized);
+          }
+          return (
+            normalized.related_node_id ||
+            normalized.shot_type ||
+            normalized.camera_movement ||
+            normalized.visual_description ||
+            normalized.dialogue_or_sfx ||
+            normalized.prompt_draft
+          )
+            ? normalized
+            : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  const estimatedTotalDuration = toInt(
+    storyboard.estimated_total_duration_sec,
+    storyboards.reduce((sum, shot) => sum + (shot.duration_sec || 0), 0),
+    0,
+  );
+
+  const exportReadyChecklist = normalizeStringList(storyboard.export_ready_checklist);
+
+  if (storyboards.length || exportReadyChecklist.length || estimatedTotalDuration) {
+    return {
+      storyboards,
+      estimated_total_duration_sec: estimatedTotalDuration,
+      export_ready_checklist: exportReadyChecklist,
+    };
+  }
+  return null;
+}
+
+function normalizeVideoState(videoLab) {
+  const base = {
+    script: '',
+    prompt: '',
+    task_id: '',
+    task_status: '',
+    video_url: '',
+    auto_poll: true,
+    last_check_time: '',
+    long_segments: [],
+    total_duration: 0,
+    filename_prefix: '',
+  };
+
+  if (!videoLab || typeof videoLab !== 'object') {
+    return base;
+  }
+
+  const longSegments = Array.isArray(videoLab.long_segments)
+    ? videoLab.long_segments
+        .map((segment, index) => {
+          if (!segment || typeof segment !== 'object') {
+            return null;
+          }
+          return {
+            index: toInt(segment.index, index + 1, 1),
+            duration: toInt(segment.duration, 0, 0),
+            prompt: toText(segment.prompt),
+            task_id: toText(segment.task_id),
+            task_status: toText(segment.task_status),
+            video_url: toText(segment.video_url || segment.url),
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  return {
+    script: toText(videoLab.script),
+    prompt: toText(videoLab.prompt),
+    task_id: toText(videoLab.task_id),
+    task_status: toText(videoLab.task_status),
+    video_url: toText(videoLab.video_url || videoLab.url),
+    auto_poll: videoLab.auto_poll !== false,
+    last_check_time: toText(videoLab.last_check_time),
+    long_segments: longSegments,
+    total_duration: toInt(videoLab.total_duration, 0, 0),
+    filename_prefix: toText(videoLab.filename_prefix),
+  };
+}
+
 const state = { ...EMPTY_STATE };
 let currentProvider = loadProvider();
 let currentProjectId = loadCurrentProjectId();
@@ -74,10 +354,10 @@ function formatTimeHHmmss(dateObj = new Date()) {
 function normalizeState(input) {
   const parsed = (input && typeof input === 'object') ? input : {};
   return {
-    story_card: parsed.story_card || null,
-    workshop: parsed.workshop || null,
-    storyboard: parsed.storyboard || null,
-    video_lab: parsed.video_lab || null,
+    story_card: normalizeStoryCard(parsed.story_card),
+    workshop: normalizeWorkshopData(parsed.workshop),
+    storyboard: normalizeStoryboardData(parsed.storyboard),
+    video_lab: normalizeVideoState(parsed.video_lab),
   };
 }
 
@@ -211,7 +491,6 @@ function renderProjectList() {
   list.innerHTML = projectsCache
     .map((p) => `
       <div class="project-card ${String(p.id) === String(currentProjectId) ? 'active' : ''}" data-project-id="${p.id}">
-        <button class="project-card-edit" data-project-id="${p.id}" title="编辑项目信息" aria-label="编辑项目信息">✎</button>
         ${getCoverHtml(p)}
         <div>
           <div class="project-card-title">${p.name || '未命名项目'}</div>
@@ -224,29 +503,12 @@ function renderProjectList() {
 
   const cards = list.querySelectorAll('.project-card');
   cards.forEach((card) => {
-    card.addEventListener('click', async (e) => {
-      // 如果点击的是编辑按钮，不切换项目
-      if (e.target.classList.contains('project-card-edit')) {
-        return;
-      }
+    card.addEventListener('click', async () => {
       const targetId = card.getAttribute('data-project-id');
       if (!targetId || String(targetId) === String(currentProjectId)) {
         return;
       }
       await switchProject(targetId);
-    });
-  });
-
-  // 绑定编辑按钮事件
-  const editBtns = list.querySelectorAll('.project-card-edit');
-  editBtns.forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const projectId = btn.getAttribute('data-project-id');
-      const project = projectsCache.find((p) => String(p.id) === String(projectId));
-      if (project) {
-        openEditProjectDialog(project);
-      }
     });
   });
 }
@@ -379,73 +641,6 @@ async function createProjectFromDialog() {
   }
 }
 
-let editingProjectId = null;
-
-function openEditProjectDialog(project) {
-  editingProjectId = project.id;
-  
-  const modal = bind('edit-project-modal');
-  const nameInput = bind('edit-project-name');
-  const creatorInput = bind('edit-project-creator');
-  const descriptionInput = bind('edit-project-description');
-  
-  if (!modal || !nameInput || !creatorInput || !descriptionInput) {
-    return;
-  }
-  
-  nameInput.value = project.name || '';
-  creatorInput.value = project.creator || '';
-  descriptionInput.value = project.description || '';
-  
-  modal.setAttribute('aria-hidden', 'false');
-}
-
-function closeEditProjectDialog() {
-  const modal = bind('edit-project-modal');
-  if (modal) {
-    modal.setAttribute('aria-hidden', 'true');
-  }
-  editingProjectId = null;
-}
-
-async function saveEditProject() {
-  if (!editingProjectId) {
-    return;
-  }
-  
-  const nameInput = bind('edit-project-name');
-  const creatorInput = bind('edit-project-creator');
-  const descriptionInput = bind('edit-project-description');
-  
-  if (!nameInput || !creatorInput || !descriptionInput) {
-    return;
-  }
-  
-  const name = nameInput.value.trim();
-  if (!name) {
-    alert('项目名称不能为空');
-    return;
-  }
-  
-  const data = await fetchJson(`/api/projects/${editingProjectId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: name,
-      creator: creatorInput.value.trim(),
-      description: descriptionInput.value.trim(),
-    }),
-  });
-  
-  if (!data.ok) {
-    alert(`编辑项目失败: ${data.error || '未知错误'}`);
-    return;
-  }
-  
-  closeEditProjectDialog();
-  await loadProjects();
-}
-
 async function deleteCurrentProject() {
   if (!currentProjectId) {
     return;
@@ -474,7 +669,6 @@ function bindProjectDrawerActions() {
   const btnClose = bind('btn-project-drawer-close');
   const btnNew = bind('btn-new-project');
   const btnDelete = bind('btn-delete-project');
-  const drawer = bind('project-drawer');
 
   if (btnToggle) {
     btnToggle.addEventListener('click', () => {
@@ -506,188 +700,6 @@ function bindProjectDrawerActions() {
       }
     });
   }
-
-  // 点击项目抽屉外部关闭抽屉
-  if (drawer && btnToggle) {
-    document.addEventListener('click', (e) => {
-      // 检查点击目标是否在抽屉内或是抽屉按钮
-      const isClickInsideDrawer = drawer.contains(e.target);
-      const isClickOnToggleBtn = btnToggle.contains(e.target);
-      
-      // 如果点击在抽屉外且不是按钮，且抽屉是打开状态，则关闭
-      if (!isClickInsideDrawer && !isClickOnToggleBtn && projectDrawerOpen) {
-        updateDrawerOpen(false);
-      }
-    });
-  }
-}
-
-function bindEditProjectDialogActions() {
-  const modal = bind('edit-project-modal');
-  const closeBtn = bind('edit-project-close');
-  const cancelBtn = bind('edit-project-cancel');
-  const saveBtn = bind('edit-project-save');
-  const backdrop = document.querySelector('.edit-project-modal-backdrop');
-  
-  if (!modal) {
-    return;
-  }
-  
-  // 点击关闭按钮
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      closeEditProjectDialog();
-    });
-  }
-  
-  // 点击取消按钮
-  if (cancelBtn) {
-    cancelBtn.addEventListener('click', () => {
-      closeEditProjectDialog();
-    });
-  }
-  
-  // 点击背景关闭
-  if (backdrop) {
-    backdrop.addEventListener('click', () => {
-      closeEditProjectDialog();
-    });
-  }
-  
-  // 点击保存按钮
-  if (saveBtn) {
-    saveBtn.addEventListener('click', async () => {
-      try {
-        await saveEditProject();
-      } catch (err) {
-        console.error(err);
-        alert(`保存失败: ${err.message}`);
-      }
-    });
-  }
-  
-  // ESC键关闭
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && modal.getAttribute('aria-hidden') === 'false') {
-      closeEditProjectDialog();
-    }
-  });
-}
-
-function initProjectDrawerDrag() {
-  const btn = bind('btn-project-drawer');
-  if (!btn) {
-    return;
-  }
-
-  let isDragging = false;
-  let startX = 0;
-  let startY = 0;
-  let currentX = 0;
-  let currentY = 0;
-
-  // Load saved position from localStorage
-  try {
-    const savedPos = localStorage.getItem('project_drawer_btn_position');
-    if (savedPos) {
-      const pos = JSON.parse(savedPos);
-      currentX = pos.x;
-      currentY = pos.y;
-      btn.style.left = currentX + 'px';
-      btn.style.top = currentY + 'px';
-    }
-  } catch (err) {
-    console.error('Failed to load button position:', err);
-  }
-
-  btn.addEventListener('mousedown', (e) => {
-    // Don't drag if clicking on the button itself (just opening drawer)
-    if (e.button !== 0) return; // Only left mouse button
-    
-    isDragging = true;
-    startX = e.clientX - currentX;
-    startY = e.clientY - currentY;
-    btn.classList.add('dragging');
-    btn.style.cursor = 'grabbing';
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-
-    currentX = e.clientX - startX;
-    currentY = e.clientY - startY;
-
-    // Constrain to viewport
-    const maxX = window.innerWidth - btn.offsetWidth;
-    const maxY = window.innerHeight - btn.offsetHeight;
-
-    currentX = Math.max(0, Math.min(currentX, maxX));
-    currentY = Math.max(0, Math.min(currentY, maxY));
-
-    btn.style.left = currentX + 'px';
-    btn.style.top = currentY + 'px';
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (isDragging) {
-      isDragging = false;
-      btn.classList.remove('dragging');
-      btn.style.cursor = 'grab';
-
-      // Save position to localStorage
-      try {
-        localStorage.setItem('project_drawer_btn_position', JSON.stringify({
-          x: currentX,
-          y: currentY,
-        }));
-      } catch (err) {
-        console.error('Failed to save button position:', err);
-      }
-    }
-  });
-
-  // Touch support for mobile
-  btn.addEventListener('touchstart', (e) => {
-    const touch = e.touches[0];
-    isDragging = true;
-    startX = touch.clientX - currentX;
-    startY = touch.clientY - currentY;
-    btn.classList.add('dragging');
-  });
-
-  document.addEventListener('touchmove', (e) => {
-    if (!isDragging) return;
-    
-    const touch = e.touches[0];
-    currentX = touch.clientX - startX;
-    currentY = touch.clientY - startY;
-
-    const maxX = window.innerWidth - btn.offsetWidth;
-    const maxY = window.innerHeight - btn.offsetHeight;
-
-    currentX = Math.max(0, Math.min(currentX, maxX));
-    currentY = Math.max(0, Math.min(currentY, maxY));
-
-    btn.style.left = currentX + 'px';
-    btn.style.top = currentY + 'px';
-    e.preventDefault();
-  });
-
-  document.addEventListener('touchend', () => {
-    if (isDragging) {
-      isDragging = false;
-      btn.classList.remove('dragging');
-
-      try {
-        localStorage.setItem('project_drawer_btn_position', JSON.stringify({
-          x: currentX,
-          y: currentY,
-        }));
-      } catch (err) {
-        console.error('Failed to save button position:', err);
-      }
-    }
-  });
 }
 
 async function loadProviders() {
@@ -764,20 +776,7 @@ function updateProviderDisplay() {
 }
 
 function getVideoState() {
-  if (!state.video_lab) {
-    state.video_lab = {
-      script: '',
-      prompt: '',
-      task_id: '',
-      task_status: '',
-      video_url: '',
-      auto_poll: true,
-      last_check_time: '',
-      long_segments: [],
-      total_duration: 0,
-      filename_prefix: '',
-    };
-  }
+  state.video_lab = normalizeVideoState(state.video_lab);
   return state.video_lab;
 }
 
@@ -1153,54 +1152,73 @@ function formatStoryResult(result) {
 }
 
 function formatWorkshopResult(ws) {
-  if (!ws) return '-';
-  let text = `【角色设定】\n`;
-  if (ws.characters && ws.characters.length) {
-    ws.characters.forEach(c => {
-      text += `- ${c.name} (${(c.tags || []).join(', ')})\n  动机: ${c.motivation || '-'}\n  弧光: ${c.arc || '-'}\n`;
+  const workshop = normalizeWorkshopData(ws);
+  if (!workshop) return '-';
+
+  const lines = ['\u3010\u89d2\u8272\u8bbe\u5b9a\u3011'];
+  if (workshop.characters.length) {
+    workshop.characters.forEach((character) => {
+      lines.push(`- ${character.name} (${(character.tags || []).join(', ')})`);
+      lines.push(`  \u52a8\u673a: ${character.motivation || '-'}`);
+      lines.push(`  \u5f27\u5149: ${character.arc || '-'}`);
     });
   } else {
-    text += '-\n';
-  }
-  
-  text += `\n【角色关系】\n`;
-  if (ws.relationships && ws.relationships.length) {
-    ws.relationships.forEach(r => {
-      text += `- ${r.from} -> ${r.to}: ${r.type} (${r.tension || ''})\n`;
-    });
-  } else {
-    text += '-\n';
+    lines.push('-');
   }
 
-  text += `\n【情节节点】\n`;
-  if (ws.plot_nodes && ws.plot_nodes.length) {
-    ws.plot_nodes.forEach(n => {
-      text += `[${n.node_id || '-'}] ${n.phase || '-'} - ${n.location || '-'}\n`;
-      text += `  动作: ${n.action || '-'}\n`;
-      text += `  对白: ${n.dialogue_draft || '-'}\n`;
-      text += `  情感: ${n.emotion_shift || '-'}\n\n`;
+  lines.push('');
+  lines.push('\u3010\u89d2\u8272\u5173\u7cfb\u3011');
+  if (workshop.relationships.length) {
+    workshop.relationships.forEach((relationship) => {
+      lines.push(`- ${relationship.from} -> ${relationship.to}: ${relationship.type || '-'} (${relationship.tension || ''})`);
     });
   } else {
-    text += '-\n';
+    lines.push('-');
   }
-  
-  return text.trim();
+
+  lines.push('');
+  lines.push('\u3010\u5267\u60c5\u8282\u70b9\u3011');
+  if (workshop.plot_nodes.length) {
+    workshop.plot_nodes.forEach((node) => {
+      const dialogueText = Array.isArray(node.dialogue_draft) ? node.dialogue_draft.join(' / ') : '-';
+      lines.push(`[${node.id || '-'}] ${node.template_stage || '-'}`);
+      lines.push(`  \u6458\u8981: ${node.summary || '-'}`);
+      lines.push(`  \u5730\u70b9: ${node.location || '-'}`);
+      lines.push(`  \u52a8\u4f5c: ${node.action_draft || '-'}`);
+      lines.push(`  \u5bf9\u767d: ${dialogueText || '-'}`);
+      lines.push(`  \u60c5\u611f: ${node.emotion_shift || '-'}`);
+      lines.push(`  \u4e00\u81f4\u6027: ${node.consistency_check || '-'}`);
+      lines.push('');
+    });
+  } else {
+    lines.push('-');
+  }
+
+  return lines.join('\\n').trim();
 }
 
 function formatStoryboardResult(sb) {
-  if (!sb) return '-';
-  let text = `【分镜列表】\n`;
-  if (sb.storyboards && sb.storyboards.length) {
-    sb.storyboards.forEach(s => {
-      text += `[${s.shot_id || '-'}] (关联: ${s.related_node_id || '-'}) | ${s.shot_type || '-'} | ${s.camera_movement || '-'} | ${s.duration_sec || 0}秒\n`;
-      text += `  画面: ${s.visual_description || '-'}\n`;
-      text += `  声音: ${s.dialogue_or_sfx || '-'}\n`;
-      text += `  提示词: ${s.prompt_draft || '-'}\n\n`;
+  const storyboard = normalizeStoryboardData(sb);
+  if (!storyboard) return '-';
+
+  const lines = ['\u3010\u5206\u955c\u5217\u8868\u3011'];
+  if (storyboard.storyboards.length) {
+    storyboard.storyboards.forEach((shot) => {
+      lines.push(`[${shot.shot_id || '-'}] (\u5173\u8054: ${shot.related_node_id || '-'}) | ${shot.shot_type || '-'} | ${shot.camera_movement || '-'} | ${shot.duration_sec || 0}\u79d2`);
+      lines.push(`  \u753b\u9762: ${shot.visual_description || '-'}`);
+      lines.push(`  \u58f0\u97f3: ${shot.dialogue_or_sfx || '-'}`);
+      lines.push(`  \u63d0\u793a\u8bcd: ${shot.prompt_draft || '-'}`);
+      lines.push('');
     });
   } else {
-    text += '-\n';
+    lines.push('-');
   }
-  return text.trim();
+
+  if (storyboard.estimated_total_duration_sec) {
+    lines.push(`\u9884\u4f30\u603b\u65f6\u957f: ${storyboard.estimated_total_duration_sec} \u79d2`);
+  }
+
+  return lines.join('\\n').trim();
 }
 
 function bindWorkshopActions() {
@@ -1221,7 +1239,7 @@ function bindWorkshopActions() {
         return;
       }
 
-      state.story_card = data.result.story_card;
+      state.story_card = normalizeStoryCard(data.result.story_card);
       saveState();
 
       updateOutput('story-output', formatStoryResult(data.result));
@@ -1307,7 +1325,7 @@ function bindWorkshopActions() {
         return;
       }
 
-      state.workshop = data.result;
+      state.workshop = normalizeWorkshopData(data.result);
       saveState();
 
       updateOutput('workshop-output', formatWorkshopResult(state.workshop));
@@ -1330,7 +1348,7 @@ function bindWorkshopActions() {
         return;
       }
 
-      state.storyboard = data.result;
+      state.storyboard = normalizeStoryboardData(data.result);
       saveState();
 
       updateOutput('storyboard-output', formatStoryboardResult(state.storyboard));
@@ -1357,9 +1375,9 @@ function bindWorkshopActions() {
       }
 
       if (data.result.updated_state) {
-        state.story_card = data.result.updated_state.story_card || state.story_card;
-        state.workshop = data.result.updated_state.workshop || state.workshop;
-        state.storyboard = data.result.updated_state.storyboard || state.storyboard;
+        state.story_card = normalizeStoryCard(data.result.updated_state.story_card) || state.story_card;
+        state.workshop = normalizeWorkshopData(data.result.updated_state.workshop) || state.workshop;
+        state.storyboard = normalizeStoryboardData(data.result.updated_state.storyboard) || state.storyboard;
         saveState();
         refreshVisualEditors();
       }
@@ -1401,7 +1419,13 @@ function bindVisualActions() {
   if (btnCharAdd) {
     btnCharAdd.addEventListener('click', () => {
       if (!state.workshop) {
-        state.workshop = { characters: [], relationships: [], plot_nodes: [] };
+        state.workshop = {
+          characters: [],
+          relationships: [],
+          plot_nodes: [],
+          timeline_view: [],
+          card_wall_groups: [],
+        };
       }
       const charName = bind('new-char-name')?.value.trim();
       if (!charName) {
@@ -1499,76 +1523,67 @@ function bindVisualActions() {
   }
 }
 
-function bindExportActions() {
-  const btnExport = bind('btn-export');
-  if (btnExport) {
-    btnExport.addEventListener('click', async () => {
-      if (!hasDataForExport()) {
-        updateOutput('export-output', '暂无可导出数据，请先去创作工坊生成内容。');
-        return;
-      }
-
-      updateOutput('export-output', '导出中...');
-      const payload = {
-        story_card: state.story_card,
-        workshop: state.workshop,
-        storyboard: state.storyboard,
-      };
-
-      const data = await runStage('export', payload);
-      if (!data.ok) {
-        updateOutput('export-output', `错误: ${data.error}\n${data.detail || ''}`);
-        return;
-      }
-
-      updateOutput('export-output', data.result.markdown);
-    });
-  }
-
-  const btnDocx = bind('btn-export-docx');
-  if (btnDocx) {
-    btnDocx.addEventListener('click', async () => {
-      if (!hasDataForExport()) {
-        updateOutput('export-output', '暂无可导出数据，请先去创作工坊生成内容。');
-        return;
-      }
-
-      updateOutput('export-output', '正在生成 Word 文件...');
-      try {
-        await downloadFile('/api/export/docx', 'ai_short_drama_export.docx', {
-          story_card: state.story_card,
-          workshop: state.workshop,
-          storyboard: state.storyboard,
-        });
-        updateOutput('export-output', 'Word 导出成功，已开始下载。');
-      } catch (err) {
-        updateOutput('export-output', `错误: ${err.message}`);
-      }
-    });
-  }
-
-  const btnPdf = bind('btn-export-pdf');
-  if (btnPdf) {
-    btnPdf.addEventListener('click', async () => {
-      if (!hasDataForExport()) {
-        updateOutput('export-output', '暂无可导出数据，请先去创作工坊生成内容。');
-        return;
-      }
-
-      updateOutput('export-output', '正在生成 PDF 文件...');
-      try {
-        await downloadFile('/api/export/pdf', 'ai_short_drama_export.pdf', {
-          story_card: state.story_card,
-          workshop: state.workshop,
-          storyboard: state.storyboard,
-        });
-        updateOutput('export-output', 'PDF 导出成功，已开始下载。');
-      } catch (err) {
-        updateOutput('export-output', `错误: ${err.message}`);
-      }
-    });
-  }
+function clearRenderedVideoResult() {
+  const wrap = bind('video-result-wrap');
+  const player = bind('video-result-player');
+  const text = bind('video-result-link');
+  if (wrap) wrap.style.display = 'none';
+  if (player) player.src = '';
+  if (text) text.textContent = '';
 }
+
+function resetVideoRunState({
+  preservePrompt = true,
+  preserveScript = true,
+  preserveSegments = false,
+} = {}) {
+  const video = getVideoState();
+  stopVideoPolling(false);
+  video.task_id = '';
+  video.task_status = '';
+  video.video_url = '';
+  video.last_check_time = '';
+  if (!preservePrompt) {
+    video.prompt = '';
+  }
+  if (!preserveScript) {
+    video.script = '';
+  }
+  if (!preserveSegments) {
+    video.long_segments = [];
+    video.total_duration = 0;
+    video.filename_prefix = '';
+  }
+  clearRenderedVideoResult();
+  return video;
+}
+
+function buildVideoPromptsFromStoryboard(storyboard) {
+  const normalizedStoryboard = normalizeStoryboardData(storyboard);
+  if (!normalizedStoryboard || !normalizedStoryboard.storyboards.length) {
+    return '';
+  }
+
+  return normalizedStoryboard.storyboards
+    .map((shot, index) => {
+      const promptDraft = shot.prompt_draft || deriveStoryboardPrompt(shot);
+      return `镜头 ${index + 1} (${shot.shot_type || '中景'}): ${shot.visual_description || ''}。提示词: ${promptDraft}`;
+    })
+    .join('\n\n');
+}
+
+function buildExportPayload() {
+  return {
+    project: currentProjectMeta ? { ...currentProjectMeta } : null,
+    current_provider: currentProvider,
+    exported_at: new Date().toISOString(),
+    story_card: normalizeStoryCard(state.story_card),
+    workshop: normalizeWorkshopData(state.workshop),
+    storyboard: normalizeStoryboardData(state.storyboard),
+    video_lab: normalizeVideoState(getVideoState()),
+  };
+}
+
 
 function restoreOutputsOnPageLoad() {
   if (bind('story-output') && state.story_card) {
@@ -1697,16 +1712,16 @@ function renderLongSegmentsList() {
 
   box.style.display = 'block';
 
-  let html = '<h3>长视频拆段任务列表</h3>';
-  html += '<p class="hint">每一行是一段约10秒的视频，可以单独查询并播放。</p>';
+  let html = '<h3>?????????</h3>';
+  html += '<p class="hint">????????????????????????</p>';
   html += '<ul class="segment-list">';
   segments.forEach((seg) => {
     const shortPrompt = String(seg.prompt || '').slice(0, 60);
     html += `
       <li style="margin-bottom:8px;">
-        <div><strong>第${seg.index}段</strong> · 时长 ${seg.duration} 秒 · Task ID: ${seg.task_id || '-'} · 状态: ${seg.task_status || 'PENDING'}</div>
-        <div style="font-size:12px; color:var(--muted);">提示词: ${shortPrompt}${seg.prompt && seg.prompt.length > 60 ? '…' : ''}</div>
-        ${seg.task_id ? `<button data-task-id="${seg.task_id}" data-index="${seg.index}" class="btn-seg-play">查询并播放这一段</button>` : ''}
+        <div><strong>? ${seg.index} ?</strong> | ?? ${seg.duration} ? | Task ID: ${seg.task_id || '-'} | ??: ${seg.task_status || 'PENDING'}</div>
+        <div style="font-size:12px; color:var(--muted);">???: ${shortPrompt}${seg.prompt && seg.prompt.length > 60 ? '...' : ''}</div>
+        ${seg.task_id ? `<button data-task-id="${seg.task_id}" data-index="${seg.index}" class="btn-seg-play">????????</button>` : ''}
       </li>`;
   });
   html += '</ul>';
@@ -1721,12 +1736,14 @@ function renderLongSegmentsList() {
       if (!taskId) {
         return;
       }
-      updateOutput('video-task-output', `正在查询第${idx}段任务 ${taskId} ...`);
+
+      updateOutput('video-task-output', `????? ${idx} ??? ${taskId} ...`);
 
       try {
         const data = await fetchJson(`/api/video/task/${taskId}`, { method: 'GET' });
         if (!data.ok) {
-          updateOutput('video-task-output', `错误: ${data.error}\n${data.detail || ''}`);
+          updateOutput('video-task-output', `??: ${data.error}
+${data.detail || ''}`);
           return;
         }
 
@@ -1734,31 +1751,33 @@ function renderLongSegmentsList() {
         const status = output.task_status || output.status || 'UNKNOWN';
         const url = output.video_url || output.url || output?.result?.video?.url || '';
 
-        updateOutput('video-task-output', `第${idx}段任务 ${taskId}\n状态: ${status}`);
-        
-        const video = getVideoState();
+        updateOutput('video-task-output', `? ${idx} ??? ${taskId}
+??: ${status}`);
+
+        const currentVideo = getVideoState();
         let changed = false;
-        if (video.long_segments) {
-          const s = video.long_segments.find(x => String(x.task_id) === String(taskId));
-          if (s && s.task_status !== status) {
-            s.task_status = status;
-            changed = true;
+        const segment = currentVideo.long_segments.find((item) => String(item.task_id) === String(taskId));
+        if (segment && segment.task_status !== status) {
+          segment.task_status = status;
+          if (url) {
+            segment.video_url = url;
           }
+          changed = true;
         }
-        if (url && video.video_url !== url) {
-          video.video_url = url;
+        if (url && currentVideo.video_url !== url) {
+          currentVideo.video_url = url;
           changed = true;
         }
         if (changed) {
           saveState();
-          renderLongSegmentsList(); // 重新渲染列表以更新状态文字
+          renderLongSegmentsList();
         }
 
         if (url) {
           renderVideoResult(url);
         }
       } catch (err) {
-        updateOutput('video-task-output', `错误: ${err.message}`);
+        updateOutput('video-task-output', `??: ${err.message}`);
       }
     });
   });
@@ -1771,25 +1790,84 @@ async function fetchJson(url, options) {
 }
 
 function extractPromptFromScript(scriptText) {
-  const marker = '视频生成提示词';
+  const marker = '???????';
   const idx = scriptText.indexOf(marker);
   if (idx < 0) {
     return scriptText.slice(0, 600);
   }
-  return scriptText.slice(idx).replace(/^.*?[:：]/, '').trim();
+  return scriptText.slice(idx).replace(/^.*?[:?]/, '').trim();
+}
+
+function bindExportActions() {
+  const btnExport = bind('btn-export');
+  if (btnExport) {
+    btnExport.addEventListener('click', async () => {
+      if (!hasDataForExport()) {
+        updateOutput('export-output', '暂无可导出数据，请先去创作工坊生成内容。');
+        return;
+      }
+
+      updateOutput('export-output', '导出中...');
+      const payload = buildExportPayload();
+      const data = await runStage('export', payload);
+      if (!data.ok) {
+        updateOutput('export-output', `错误: ${data.error}\n${data.detail || ''}`);
+        return;
+      }
+
+      updateOutput('export-output', data.result.markdown);
+    });
+  }
+
+  const btnDocx = bind('btn-export-docx');
+  if (btnDocx) {
+    btnDocx.addEventListener('click', async () => {
+      if (!hasDataForExport()) {
+        updateOutput('export-output', '暂无可导出数据，请先去创作工坊生成内容。');
+        return;
+      }
+
+      updateOutput('export-output', '正在生成 Word 文件...');
+      try {
+        await downloadFile('/api/export/docx', 'ai_short_drama_export.docx', buildExportPayload());
+        updateOutput('export-output', 'Word 导出成功，已开始下载。');
+      } catch (err) {
+        updateOutput('export-output', `错误: ${err.message}`);
+      }
+    });
+  }
+
+  const btnPdf = bind('btn-export-pdf');
+  if (btnPdf) {
+    btnPdf.addEventListener('click', async () => {
+      if (!hasDataForExport()) {
+        updateOutput('export-output', '暂无可导出数据，请先去创作工坊生成内容。');
+        return;
+      }
+
+      updateOutput('export-output', '正在生成 PDF 文件...');
+      try {
+        await downloadFile('/api/export/pdf', 'ai_short_drama_export.pdf', buildExportPayload());
+        updateOutput('export-output', 'PDF 导出成功，已开始下载。');
+      } catch (err) {
+        updateOutput('export-output', `错误: ${err.message}`);
+      }
+    });
+  }
 }
 
 function bindVideoActions() {
   const videoPromptInput = bind('video-prompt');
   if (videoPromptInput) {
     videoPromptInput.addEventListener('change', () => {
+      const nextPrompt = videoPromptInput.value;
       const video = getVideoState();
-      if (video.prompt !== videoPromptInput.value) {
-        video.prompt = videoPromptInput.value;
-        // Optionally clear video_url when prompt is manually changed to avoid confusion?
-        // Let's just save the updated prompt state.
-        saveState();
+      if (video.prompt === nextPrompt) {
+        return;
       }
+      resetVideoRunState({ preservePrompt: false, preserveScript: true, preserveSegments: false });
+      video.prompt = nextPrompt;
+      saveState();
     });
   }
 
@@ -1800,48 +1878,46 @@ function bindVideoActions() {
         alert('请先在创作工坊生成故事和角色节点！');
         return;
       }
+
       if (state.story_card) {
         if (bind('video-idea')) bind('video-idea').value = state.story_card.logline || state.story_card.core_conflict || '';
         if (bind('video-genre')) bind('video-genre').value = state.story_card.theme || '';
       }
-      if (state.workshop && state.workshop.characters) {
-        const roles = state.workshop.characters.map(c => c.name).join('、');
+      if (state.workshop?.characters?.length) {
+        const roles = state.workshop.characters.map((character) => character.name).join('、');
         if (bind('video-roles')) bind('video-roles').value = roles;
       }
-      // HIDE OLD VIDEO WHEN IMPORTING NEW SCRIPT
-      const video = getVideoState();
-      video.video_url = '';
-      saveState();
-      const wrap = bind('video-result-wrap');
-      if (wrap) wrap.style.display = 'none';
 
-      alert('已导入核心设定、题材与人物。可以直接生成短剧脚本了！');
+      resetVideoRunState({ preservePrompt: false, preserveScript: false, preserveSegments: false });
+      if (bind('video-prompt')) bind('video-prompt').value = '';
+      if (bind('video-script-output')) updateOutput('video-script-output', '');
+      if (bind('video-task-output')) updateOutput('video-task-output', '');
+      if (bind('video-long-output')) updateOutput('video-long-output', '');
+      saveState();
+
+      alert('已导入核心设定、题材和人物，可以继续生成短剧脚本。');
     });
   }
 
   const btnImportLabStoryboard = bind('btn-import-lab-storyboard');
   if (btnImportLabStoryboard) {
     btnImportLabStoryboard.addEventListener('click', () => {
-      if (!state.storyboard || !state.storyboard.storyboards || state.storyboard.storyboards.length === 0) {
+      const finalPrompts = buildVideoPromptsFromStoryboard(state.storyboard);
+      if (!finalPrompts) {
         alert('请先在创作工坊生成并保存分镜！');
         return;
       }
-      
-      let finalPrompts = state.storyboard.storyboards.map((s, idx) => {
-        return `镜头 ${idx + 1} (${s.shot_type || '中景'}): ${s.visual_description || ''}。提示词: ${s.prompt_draft || ''}`;
-      }).join('\n\n');
-      
+
+      const video = resetVideoRunState({ preservePrompt: false, preserveScript: true, preserveSegments: false });
+      video.prompt = finalPrompts;
       if (bind('video-prompt')) {
         bind('video-prompt').value = finalPrompts;
-        const video = getVideoState();
-        video.prompt = finalPrompts;
-        video.video_url = '';
-        saveState();
-
-        const wrap = bind('video-result-wrap');
-        if (wrap) wrap.style.display = 'none';
       }
-      alert('已直接导入分镜作为视频提示词，现在可以创建视频任务了！');
+      if (bind('video-task-output')) updateOutput('video-task-output', '');
+      if (bind('video-long-output')) updateOutput('video-long-output', '');
+      saveState();
+
+      alert('已将分镜导入为视频提示词，现在可以创建视频任务了。');
     });
   }
 
@@ -1869,19 +1945,17 @@ function bindVideoActions() {
         return;
       }
 
-      const video = getVideoState();
+      const video = resetVideoRunState({ preservePrompt: false, preserveScript: false, preserveSegments: false });
       video.script = data.script;
       video.prompt = extractPromptFromScript(data.script);
-      video.video_url = '';
       saveState();
-
-      const wrap = bind('video-result-wrap');
-      if (wrap) wrap.style.display = 'none';
 
       updateOutput('video-script-output', data.script);
       if (bind('video-prompt')) {
         bind('video-prompt').value = video.prompt;
       }
+      if (bind('video-task-output')) updateOutput('video-task-output', '');
+      if (bind('video-long-output')) updateOutput('video-long-output', '');
     });
   }
 
@@ -1913,15 +1987,14 @@ function bindVideoActions() {
       }
 
       const output = data.result?.output || data.result || {};
-      const video = getVideoState();
+      const video = resetVideoRunState({ preservePrompt: true, preserveScript: true, preserveSegments: false });
       video.prompt = payload.prompt;
       video.task_id = output.task_id || output.request_id || '';
       video.task_status = output.task_status || output.status || 'PENDING';
-      video.video_url = '';
-      video.last_check_time = '';
       video.auto_poll = Boolean(bind('video-auto-poll')?.checked);
       saveState();
 
+      if (bind('video-long-output')) updateOutput('video-long-output', '');
       updateOutput('video-task-output', `任务已创建\nTask ID: ${video.task_id}\n状态: ${video.task_status}`);
 
       if (video.auto_poll && video.task_id) {
@@ -1948,11 +2021,11 @@ function bindVideoActions() {
         return;
       }
       if (!totalDuration || totalDuration <= 0) {
-        updateOutput('video-long-output', '请填写大于0的总时长（秒）。');
+        updateOutput('video-long-output', '请填写大于 0 的总时长（秒）。');
         return;
       }
       if (totalDuration <= 10) {
-        updateOutput('video-long-output', '总时长不大于10秒时，请直接使用“创建视频任务”按钮。');
+        updateOutput('video-long-output', '总时长不大于 10 秒时，请直接使用“创建视频任务”按钮。');
         return;
       }
 
@@ -1983,24 +2056,28 @@ function bindVideoActions() {
           return;
         }
 
-        const video = getVideoState();
-        video.long_segments = data.result?.segments || [];
-        video.total_duration = data.result?.total_duration || totalDuration;
-        video.filename_prefix = bind('video-filename-prefix')?.value.trim() || '';
-        video.video_url = ''; // Clear single video url to avoid confusion
-
-        const wrap = bind('video-result-wrap');
-        if (wrap) wrap.style.display = 'none';
-
+        const normalizedVideo = normalizeVideoState({
+          prompt: basePrompt,
+          long_segments: data.result?.segments || [],
+          total_duration: data.result?.total_duration || totalDuration,
+          filename_prefix: bind('video-filename-prefix')?.value.trim() || '',
+        });
+        const video = resetVideoRunState({ preservePrompt: true, preserveScript: true, preserveSegments: false });
+        video.prompt = normalizedVideo.prompt;
+        video.long_segments = normalizedVideo.long_segments;
+        video.total_duration = normalizedVideo.total_duration;
+        video.filename_prefix = normalizedVideo.filename_prefix;
         saveState();
 
-        let text = `长视频拆段任务已创建。\n总时长: ${video.total_duration} 秒`; 
+        if (bind('video-task-output')) updateOutput('video-task-output', '');
+
+        let text = `长视频拆段任务已创建。\n总时长: ${video.total_duration} 秒`;
         if (video.long_segments.length) {
           text += `\n共拆分为 ${video.long_segments.length} 段：`;
-          video.long_segments.forEach((seg) => {
-            text += `\n- 第${seg.index}段: 时长 ${seg.duration} 秒, Task ID: ${seg.task_id || '-'}\n  提示词: ${String(seg.prompt || '').slice(0, 120)}...`;
+          video.long_segments.forEach((segment) => {
+            text += `\n- 第${segment.index}段: 时长 ${segment.duration} 秒, Task ID: ${segment.task_id || '-'}\n  提示词: ${String(segment.prompt || '').slice(0, 120)}...`;
           });
-          text += '\n\n可以使用下方“查询任务状态”按 Task ID 查询单段状态，或在万相控制台查看任务详情。';
+          text += '\n\n可以使用下方“查询任务状态”按 Task ID 查询单段状态，或在控制台查看任务详情。';
         }
 
         updateOutput('video-long-output', text);
@@ -2050,8 +2127,6 @@ async function initProjectContext() {
 
 async function initApp() {
   bindProjectDrawerActions();
-  bindEditProjectDialogActions();
-  initProjectDrawerDrag();
   bindWorkshopActions();
   bindVisualActions();
   bindExportActions();
