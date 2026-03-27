@@ -13,6 +13,13 @@ from app.config import (
     QINIU_LLM_FALLBACK_MODELS,
 )
 
+_NO_PROXY_SESSION = requests.Session()
+_NO_PROXY_SESSION.trust_env = False
+
+
+def _request_no_proxy(method: str, url: str, **kwargs: Any) -> requests.Response:
+    return _NO_PROXY_SESSION.request(method=method, url=url, **kwargs)
+
 
 def _extract_json(text: str) -> Dict[str, Any]:
     text = text.strip()
@@ -158,7 +165,7 @@ def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt:
         }
 
         try:
-            response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
+            response = _request_no_proxy("POST", url, headers=headers, json=body, timeout=60, verify=False)
             response.raise_for_status()
             data = response.json()
             content = data["choices"][0]["message"]["content"]
@@ -203,7 +210,7 @@ def _call_openai_compatible_text(provider_config: Dict[str, Any], system_prompt:
         }
 
         try:
-            response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
+            response = _request_no_proxy("POST", url, headers=headers, json=body, timeout=60, verify=False)
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"].strip()

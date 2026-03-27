@@ -25,6 +25,7 @@ from app.services.llm_service import (
     _build_qiniu_aksk_headers,
     _build_qiniu_headers,
     _call_provider_text,
+    _request_no_proxy,
 )
 
 
@@ -215,7 +216,7 @@ def _create_video_task(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     for idx, url in enumerate(url_candidates):
         try:
-            response = requests.post(url, headers=headers, json=body, timeout=60, verify=False)
+            response = _request_no_proxy("POST", url, headers=headers, json=body, timeout=60, verify=False)
             response.raise_for_status()
             return _normalize_create_video_response(response.json())
         except requests.HTTPError as err:
@@ -242,7 +243,7 @@ def _query_video_task(task_id: str) -> Dict[str, Any]:
 
     for idx, url in enumerate(url_candidates):
         try:
-            response = requests.get(url, headers=headers, timeout=60, verify=False)
+            response = _request_no_proxy("GET", url, headers=headers, timeout=60, verify=False)
             response.raise_for_status()
             return _normalize_query_video_response(response.json(), task_id)
         except requests.HTTPError as err:
@@ -268,7 +269,7 @@ def _qiniu_web_search(query: str, max_results: int = 10, search_type: str = "web
     }
     url = _resolve_url(QINIU_LLM_BASE_URL, QINIU_WEB_SEARCH_PATH)
     headers = _build_qiniu_headers("text", include_content_type=True)
-    response = requests.post(url, headers=headers, json=payload, timeout=60, verify=False)
+    response = _request_no_proxy("POST", url, headers=headers, json=payload, timeout=60, verify=False)
     response.raise_for_status()
     return response.json()
 
