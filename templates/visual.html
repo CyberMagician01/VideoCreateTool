@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>可视化编辑 - AI短剧创作智能体</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css?v=20260327_1" />
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  </head>
+  <body>
+    <div class="bg-shape bg-shape-1"></div>
+    <div class="bg-shape bg-shape-2"></div>
+
+    <button id="btn-project-drawer" class="project-drawer-toggle" title="管理项目" aria-label="管理项目">
+      项
+    </button>
+
+    <aside id="project-drawer" class="project-drawer" aria-hidden="true">
+      <div class="project-drawer-head">
+        <h3>项目管理</h3>
+        <button id="btn-project-drawer-close" class="project-drawer-close">关闭</button>
+      </div>
+
+      <div class="project-drawer-tools">
+        <button id="btn-new-project">新建项目</button>
+        <button id="btn-delete-project" class="danger">删除当前项目</button>
+        <button id="btn-duplicate-project" class="secondary">复制当前项目</button>
+        <button id="btn-save-snapshot" class="secondary">保存快照</button>
+      </div>
+
+      <div id="project-current-meta" class="project-current-meta">
+        <p class="hint">当前项目信息将在这里显示。</p>
+      </div>
+
+      <div id="project-save-status" class="project-save-status hint"></div>
+
+      <div id="project-list" class="project-list"></div>
+
+      <section class="project-snapshot-panel">
+        <div class="project-snapshot-head">
+          <h4>项目快照</h4>
+          <button id="btn-refresh-snapshots" class="secondary">刷新</button>
+        </div>
+        <div id="project-snapshot-status" class="hint"></div>
+        <div id="project-snapshot-list" class="project-snapshot-list">
+          <p class="hint">暂无快照</p>
+        </div>
+      </section>
+    </aside>
+
+    <div id="edit-project-modal" class="edit-project-modal">
+      <div class="edit-project-dialog">
+        <h3>编辑项目信息</h3>
+        <form class="edit-project-form" id="edit-project-form">
+          <div class="form-group">
+            <label for="edit-project-name">项目名称</label>
+            <input type="text" id="edit-project-name" placeholder="输入项目名称" required>
+          </div>
+          <div class="form-group">
+            <label for="edit-project-creator">创建人</label>
+            <input type="text" id="edit-project-creator" placeholder="输入创建人名称">
+          </div>
+          <div class="form-group">
+            <label for="edit-project-description">项目描述</label>
+            <textarea id="edit-project-description" placeholder="输入项目描述（可选）"></textarea>
+          </div>
+          <div class="edit-project-actions">
+            <button type="button" class="btn-cancel" id="btn-edit-cancel">取消</button>
+            <button type="button" class="btn-save" id="btn-edit-save">保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <main class="container">
+      <nav class="top-nav">
+        <a href="/" class="brand">短剧智能体</a>
+        <div class="nav-links">
+          <a href="/studio">创作工坊</a>
+          <a class="active" href="/visual">可视化编辑</a>
+          <a href="/export-center">导出中心</a>
+          <a href="/video-lab">视频实验室</a>
+        </div>
+      </nav>
+
+      <header class="hero compact">
+        <h1>可视化编辑</h1>
+        <p>管理角色关系图与情节时间线拖拽排序。</p>
+      </header>
+
+      <section class="panel">
+        <div class="grid two viz-wrap no-top-line">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h2>角色关系图</h2>
+              <button id="btn-visual-undo" class="secondary" style="padding: 4px 12px; font-size: 14px;">撤销上一步</button>
+            </div>
+            <div id="relationship-graph" class="viz-box"></div>
+            
+            <div class="grid two relation-editor" style="margin-bottom: 12px;">
+              <input id="new-char-name" placeholder="新角色名称" />
+              <button id="btn-char-add">添加独立角色</button>
+            </div>
+
+            <div class="grid two relation-editor">
+              <input id="rel-from-display" placeholder="起点角色（从图上选择）" readonly />
+              <input id="rel-to-display" placeholder="终点角色（从图上选择）" readonly />
+              <input id="rel-type" placeholder="关系类型，例如：同事、恋人、对立" />
+              <input id="rel-tension" placeholder="冲突点，例如：价值观冲突" />
+            </div>
+            <p id="rel-status" class="hint">操作提示：点击连线编辑；或依次点击两个角色节点创建关系。</p>
+            <div class="grid two relation-actions">
+              <button id="btn-rel-save">新增/更新关系</button>
+              <button id="btn-rel-remove">删除该关系</button>
+            </div>
+          </div>
+          <div>
+            <h2>情节时间线拖拽</h2>
+            <p class="hint">拖动卡片即可调整顺序，顺序会同步到后续分镜与导出。</p>
+            <ul id="timeline-list" class="timeline-list"></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js?v=20260327_1"></script>
+  </body>
+</html>
