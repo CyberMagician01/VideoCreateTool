@@ -286,6 +286,51 @@ button.danger {
   color: #2e241d;
   text-decoration: none;
   font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-family: "ZCOOL XiaoWei", serif;
+  font-size: 18px;
+  letter-spacing: 0.8px;
+  color: #fff;
+  background: linear-gradient(135deg, #b8571e, #dc8a4b);
+  box-shadow: 0 4px 12px rgba(184, 87, 30, 0.28);
+}
+
+.brand-text {
+  font-size: 15px;
+  letter-spacing: 0.3px;
+}
+
+.landing-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.landing-brand .brand-mark {
+  min-width: 60px;
+  height: 42px;
+  font-size: 22px;
+  padding: 0 14px;
+}
+
+.landing-brand-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #745b47;
+  letter-spacing: 0.5px;
 }
 
 .nav-links {
@@ -783,6 +828,11 @@ input[readonly] {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .brand-text,
+  .landing-brand-subtitle {
+    font-size: 13px;
   }
 
   .container {
