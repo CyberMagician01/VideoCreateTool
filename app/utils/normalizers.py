@@ -10,6 +10,19 @@ from app.utils.helpers import (
 )
 
 
+def _normalize_story_inputs(story_inputs: Any) -> Dict[str, Any]:
+    base = _default_project_state()["story_inputs"]
+    if not isinstance(story_inputs, dict):
+        return base
+    return {
+        "idea": _as_text(story_inputs.get("idea")),
+        "theme": _as_text(story_inputs.get("theme")),
+        "tone": _as_text(story_inputs.get("tone")),
+        "structure": _as_text(story_inputs.get("structure")),
+        "template_id": _as_text(story_inputs.get("template_id")),
+    }
+
+
 def _normalize_story_card(story_card: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(story_card, dict):
         return None
@@ -23,6 +36,11 @@ def _normalize_story_card(story_card: Any) -> Optional[Dict[str, Any]]:
         "anchor_points": _string_list(story_card.get("anchor_points")),
         "hook": _as_text(story_card.get("hook")),
         "ending_type": _as_text(story_card.get("ending_type")),
+        "viral_template_id": _as_text(story_card.get("viral_template_id")),
+        "viral_template_name": _as_text(story_card.get("viral_template_name")),
+        "opening_hook_strategy": _as_text(story_card.get("opening_hook_strategy")),
+        "conflict_escalation_strategy": _as_text(story_card.get("conflict_escalation_strategy")),
+        "cliffhanger_strategy": _as_text(story_card.get("cliffhanger_strategy")),
     }
     if any(
         [
@@ -34,18 +52,216 @@ def _normalize_story_card(story_card: Any) -> Optional[Dict[str, Any]]:
             normalized["anchor_points"],
             normalized["hook"],
             normalized["ending_type"],
+            normalized["viral_template_id"],
+            normalized["viral_template_name"],
+            normalized["opening_hook_strategy"],
+            normalized["conflict_escalation_strategy"],
+            normalized["cliffhanger_strategy"],
         ]
     ):
         return normalized
     return None
 
 
-def _normalize_story_engine_result(result: Any) -> Dict[str, Any]:
+def _normalize_story_engine_result(result: Any, template: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not isinstance(result, dict):
         return {"story_card": None, "next_questions": []}
+    story_card = _normalize_story_card(result.get("story_card") if "story_card" in result else result)
+    if story_card and template:
+        if not story_card.get("viral_template_id"):
+            story_card["viral_template_id"] = _as_text(template.get("id"))
+        if not story_card.get("viral_template_name"):
+            story_card["viral_template_name"] = _as_text(template.get("name"))
+        if not story_card.get("opening_hook_strategy"):
+            story_card["opening_hook_strategy"] = _as_text(template.get("opening_hook_formula"))
+        if not story_card.get("conflict_escalation_strategy"):
+            story_card["conflict_escalation_strategy"] = " -> ".join(_string_list(template.get("conflict_escalation")))
+        if not story_card.get("cliffhanger_strategy"):
+            story_card["cliffhanger_strategy"] = _as_text(template.get("cliffhanger_strategy"))
     return {
-        "story_card": _normalize_story_card(result.get("story_card") if "story_card" in result else result),
+        "story_card": story_card,
         "next_questions": _string_list(result.get("next_questions")),
+    }
+
+
+def _normalize_title_score(item: Any, index: int) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    normalized = {
+        "id": _as_text(item.get("id")) or f"title_score_{index}",
+        "name": _as_text(item.get("name")) or f"维度{index}",
+        "score": min(_safe_int(item.get("score"), 0, minimum=0), 100),
+        "reason": _as_text(item.get("reason")),
+    }
+    if any([normalized["name"], normalized["reason"], normalized["score"]]):
+        return normalized
+    return None
+
+
+def _normalize_title_suggestion(item: Any, index: int) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    scores = [
+        entry
+        for entry in (
+            _normalize_title_score(score, idx + 1) for idx, score in enumerate(item.get("scores", []))
+        )
+        if entry
+    ]
+    normalized = {
+        "id": _as_text(item.get("id")) or f"title_{index}",
+        "title": _as_text(item.get("title")),
+        "style": _as_text(item.get("style")),
+        "hook_point": _as_text(item.get("hook_point")),
+        "overall_score": min(_safe_int(item.get("overall_score"), 0, minimum=0), 100),
+        "verdict": _as_text(item.get("verdict")),
+        "reason": _as_text(item.get("reason")),
+        "scores": scores,
+    }
+    if normalized["title"]:
+        return normalized
+    return None
+
+
+def _normalize_title_packaging_result(result: Any) -> Dict[str, Any]:
+    base = _default_project_state()["title_lab"]
+    if not isinstance(result, dict):
+        return base
+
+    evaluated_title = _normalize_title_suggestion(result.get("evaluated_title"), 0)
+    title_suggestions = [
+        item
+        for item in (
+            _normalize_title_suggestion(candidate, idx + 1)
+            for idx, candidate in enumerate(result.get("title_suggestions", []))
+        )
+        if item
+    ]
+
+    recommended_title_id = _as_text(result.get("recommended_title_id"))
+    if recommended_title_id and not any(item["id"] == recommended_title_id for item in title_suggestions):
+        recommended_title_id = title_suggestions[0]["id"] if title_suggestions else ""
+
+    return {
+        "current_title": _as_text(result.get("current_title")),
+        "summary": _as_text(result.get("summary")),
+        "evaluated_title": evaluated_title,
+        "recommended_title_id": recommended_title_id or (title_suggestions[0]["id"] if title_suggestions else ""),
+        "recommended_reason": _as_text(result.get("recommended_reason")),
+        "title_suggestions": title_suggestions,
+        "topic_tags": _string_list(result.get("topic_tags")),
+        "updated_at": _as_text(result.get("updated_at")),
+    }
+
+
+def _normalize_review_dimension(dimension: Any, index: int) -> Optional[Dict[str, Any]]:
+    if not isinstance(dimension, dict):
+        return None
+    normalized = {
+        "id": _as_text(dimension.get("id")) or f"dimension_{index}",
+        "name": _as_text(dimension.get("name")) or f"维度{index}",
+        "score": _safe_int(dimension.get("score"), 0, minimum=0),
+        "reason": _as_text(dimension.get("reason")),
+        "suggestion": _as_text(dimension.get("suggestion")),
+    }
+    normalized["score"] = min(normalized["score"], 100)
+    if any([normalized["name"], normalized["reason"], normalized["suggestion"], normalized["score"]]):
+        return normalized
+    return None
+
+
+def _normalize_story_review_result(result: Any) -> Dict[str, Any]:
+    base = _default_project_state()["review_lab"]["latest_review"]
+    if not isinstance(result, dict):
+        return base
+
+    dimensions = [
+        item
+        for item in (
+            _normalize_review_dimension(dimension, idx + 1)
+            for idx, dimension in enumerate(result.get("dimensions", []))
+        )
+        if item
+    ]
+    low_score_dimensions = [
+        item
+        for item in _string_list(result.get("low_score_dimensions"))
+        if any(d["id"] == item for d in dimensions)
+    ]
+    if not low_score_dimensions:
+        low_score_dimensions = [d["id"] for d in dimensions if int(d.get("score", 0)) < 75]
+
+    return {
+        "summary": _as_text(result.get("summary")),
+        "overall_score": min(_safe_int(result.get("overall_score"), 0, minimum=0), 100),
+        "dimensions": dimensions,
+        "top_issues": _string_list(result.get("top_issues")),
+        "priority_actions": _string_list(result.get("priority_actions")),
+        "low_score_dimensions": low_score_dimensions,
+    }
+
+
+def _normalize_rewrite_target(target: Any) -> str:
+    value = _as_text(target)
+    return value if value in {"story_card", "workshop", "storyboard"} else "story_card"
+
+
+def _normalize_rewrite_candidate(candidate: Any, index: int, target: str) -> Optional[Dict[str, Any]]:
+    if not isinstance(candidate, dict):
+        return None
+
+    normalized_target = _normalize_rewrite_target(candidate.get("target") or target)
+    normalized = {
+        "id": _as_text(candidate.get("id")) or f"rewrite_{index}",
+        "title": _as_text(candidate.get("title")) or f"改写版本 {index}",
+        "strategy": _as_text(candidate.get("strategy")),
+        "focus_dimensions": _string_list(candidate.get("focus_dimensions")),
+        "target": normalized_target,
+        "story_card": None,
+        "workshop": None,
+        "storyboard": None,
+    }
+
+    if normalized_target == "story_card":
+        normalized["story_card"] = _normalize_story_card(candidate.get("story_card"))
+        return normalized if normalized["story_card"] is not None else None
+    if normalized_target == "workshop":
+        normalized["workshop"] = _normalize_workshop_result(candidate.get("workshop"))
+        return normalized if normalized["workshop"] is not None else None
+
+    normalized["storyboard"] = _normalize_storyboard_result(candidate.get("storyboard"))
+    return normalized if normalized["storyboard"] is not None else None
+
+
+def _normalize_story_rewrite_result(result: Any) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {"target": "story_card", "candidates": []}
+    target = _normalize_rewrite_target(result.get("target"))
+    candidates = [
+        item
+        for item in (
+            _normalize_rewrite_candidate(candidate, idx + 1, target)
+            for idx, candidate in enumerate(result.get("candidates", []))
+        )
+        if item
+    ]
+    return {
+        "target": target,
+        "candidates": candidates,
+    }
+
+
+def _normalize_review_lab_state(review_lab: Any) -> Dict[str, Any]:
+    base = _default_project_state()["review_lab"]
+    if not isinstance(review_lab, dict):
+        return base
+    latest_review = _normalize_story_review_result(review_lab.get("latest_review"))
+    rewrite_data = _normalize_story_rewrite_result({"candidates": review_lab.get("rewrite_candidates", [])})
+    return {
+        "latest_review": latest_review,
+        "rewrite_candidates": rewrite_data.get("candidates", []),
+        "last_review_stage": _as_text(review_lab.get("last_review_stage")),
+        "last_review_time": _as_text(review_lab.get("last_review_time")),
     }
 
 
@@ -258,7 +474,10 @@ def _normalize_video_lab_state(video_lab: Any) -> Dict[str, Any]:
 
 def _normalize_project_state(state: Any) -> Dict[str, Any]:
     return {
+        "story_inputs": _normalize_story_inputs(state.get("story_inputs") if isinstance(state, dict) else None),
         "story_card": _normalize_story_card(state.get("story_card")) if isinstance(state, dict) else None,
+        "review_lab": _normalize_review_lab_state(state.get("review_lab") if isinstance(state, dict) else None),
+        "title_lab": _normalize_title_packaging_result(state.get("title_lab") if isinstance(state, dict) else None),
         "workshop": _normalize_workshop_result(state.get("workshop")) if isinstance(state, dict) else None,
         "storyboard": _normalize_storyboard_result(state.get("storyboard")) if isinstance(state, dict) else None,
         "video_lab": _normalize_video_lab_state(state.get("video_lab") if isinstance(state, dict) else None),

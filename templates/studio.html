@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/style.css?v=20260327_1" />
+    <link rel="stylesheet" href="/static/style.css?v=20260409_review_2" />
   </head>
   <body>
     <div class="bg-shape bg-shape-1"></div>
@@ -113,6 +113,10 @@
         <div class="grid two">
           <textarea id="idea" placeholder="一句话创意，例如：一个关于时间循环的外卖员"></textarea>
           <div class="mini-form">
+            <select id="story-template-select">
+              <option value="">不使用模板（自由发挥）</option>
+            </select>
+            <div id="story-template-summary" class="hint" style="min-height: 88px; white-space: pre-line; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.6); border: 1px solid rgba(0,0,0,0.06);"></div>
             <input id="theme" placeholder="主题偏好（可选）" />
             <input id="tone" placeholder="情绪基调（可选）" />
             <input id="structure" placeholder="结构模板偏好（可选）" />
@@ -123,6 +127,7 @@
           </div>
         </div>
         <pre id="story-output" class="output"></pre>
+        <div id="review-panel" class="panel soft" style="margin-top:12px; display:none;"></div>
       </section>
 
       <section class="panel" id="compare-panel" style="display:none;">
@@ -159,6 +164,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260327_1"></script>
+    <script src="/static/app.js?v=20260409_review_3"></script>
   </body>
 </html>

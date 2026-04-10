@@ -19,6 +19,7 @@ from app.utils.helpers import (
 from app.utils.normalizers import (
     _normalize_story_card,
     _normalize_storyboard_result,
+    _normalize_title_packaging_result,
     _normalize_video_lab_state,
     _normalize_workshop_result,
 )
@@ -27,6 +28,58 @@ from app.utils.normalizers import (
 def _dialogue_text(dialogue: Any) -> str:
     values = _string_list(dialogue)
     return " / ".join(values) if values else "-"
+
+
+def _title_score_text(score: Dict[str, Any]) -> str:
+    return f"{score.get('name', '-')} {score.get('score', 0)}分：{score.get('reason', '') or '-'}"
+
+
+def _title_pack_lines(title_lab: Dict[str, Any]) -> List[str]:
+    if not title_lab:
+        return ["- 暂无标题包装建议"]
+
+    lines: List[str] = []
+    lines.append(f"- 当前标题: {title_lab.get('current_title', '') or '-'}")
+    lines.append(f"- 整体判断: {title_lab.get('summary', '') or '-'}")
+    lines.append(f"- 推荐标题ID: {title_lab.get('recommended_title_id', '') or '-'}")
+    lines.append(f"- 推荐原因: {title_lab.get('recommended_reason', '') or '-'}")
+
+    evaluated_title = title_lab.get("evaluated_title") or {}
+    if evaluated_title:
+        lines.append("- 当前标题评估:")
+        lines.append(
+            f"  标题: {evaluated_title.get('title', '') or '-'} | 总分: {evaluated_title.get('overall_score', 0)} | 结论: {evaluated_title.get('verdict', '') or '-'}"
+        )
+        lines.append(f"  风格: {evaluated_title.get('style', '') or '-'}")
+        lines.append(f"  抓人点: {evaluated_title.get('hook_point', '') or '-'}")
+        lines.append(f"  说明: {evaluated_title.get('reason', '') or '-'}")
+        for score in evaluated_title.get("scores", []):
+            lines.append(f"  - {_title_score_text(score)}")
+
+    suggestions = title_lab.get("title_suggestions") or []
+    if suggestions:
+        lines.append("- 标题建议:")
+        for item in suggestions:
+            lines.append(
+                f"  - [{item.get('id', '-')}] {item.get('title', '') or '-'} | 总分: {item.get('overall_score', 0)} | 结论: {item.get('verdict', '') or '-'}"
+            )
+            lines.append(f"    风格: {item.get('style', '') or '-'}")
+            lines.append(f"    抓人点: {item.get('hook_point', '') or '-'}")
+            lines.append(f"    理由: {item.get('reason', '') or '-'}")
+            for score in item.get("scores", []):
+                lines.append(f"    * {_title_score_text(score)}")
+    else:
+        lines.append("- 标题建议: 无")
+
+    topic_tags = title_lab.get("topic_tags") or []
+    lines.append("- 话题标签建议:")
+    if topic_tags:
+        for item in topic_tags:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - 无")
+
+    return lines
 
 
 def _register_pdf_font() -> str:
@@ -103,6 +156,7 @@ def _normalize_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         or _as_text(project.get("last_provider")),
         "exported_at": _as_text(payload.get("exported_at") if isinstance(payload, dict) else "") or _utc_now_iso(),
         "story_card": _normalize_story_card(payload.get("story_card") if isinstance(payload, dict) else None),
+        "title_lab": _normalize_title_packaging_result(payload.get("title_lab") if isinstance(payload, dict) else None),
         "workshop": _normalize_workshop_result(payload.get("workshop") if isinstance(payload, dict) else None),
         "storyboard": _normalize_storyboard_result(payload.get("storyboard") if isinstance(payload, dict) else None),
         "video_lab": _normalize_video_lab_state(payload.get("video_lab") if isinstance(payload, dict) else None),
@@ -113,6 +167,7 @@ def _export_markdown(payload: Dict[str, Any]) -> Dict[str, Any]:
     data = _normalize_export_payload(payload)
     project = data["project"]
     story_card = data["story_card"] or {}
+    title_lab = data["title_lab"] or _default_project_state()["title_lab"]
     workshop = data["workshop"] or {}
     storyboard = data["storyboard"] or {}
     video_lab = data["video_lab"] or _default_project_state()["video_lab"]
@@ -130,6 +185,10 @@ def _export_markdown(payload: Dict[str, Any]) -> Dict[str, Any]:
     lines.append(f"- 更新时间: {project.get('updated_at', '') or '-'}")
     lines.append(f"- 导出时间: {data.get('exported_at', '') or '-'}")
     lines.append(f"- 当前模型: {data.get('current_provider', '') or '-'}")
+    lines.append("")
+
+    lines.append("## 标题包装建议")
+    lines.extend(_title_pack_lines(title_lab))
     lines.append("")
 
     lines.append("## 1. 故事卡")
@@ -240,6 +299,7 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
     data = _normalize_export_payload(payload)
     project = data["project"]
     story_card = data["story_card"] or {}
+    title_lab = data["title_lab"] or _default_project_state()["title_lab"]
     workshop = data["workshop"] or {}
     storyboard = data["storyboard"] or {}
     video_lab = data["video_lab"] or _default_project_state()["video_lab"]
@@ -257,6 +317,10 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
         f"导出时间: {data.get('exported_at', '') or '-'}",
         f"当前模型: {data.get('current_provider', '') or '-'}",
     ]:
+        doc.add_paragraph(line)
+
+    doc.add_heading("标题包装建议", level=2)
+    for line in _title_pack_lines(title_lab):
         doc.add_paragraph(line)
 
     doc.add_heading("1. 故事卡", level=2)
@@ -374,6 +438,7 @@ def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
     data = _normalize_export_payload(payload)
     project = data["project"]
     story_card = data["story_card"] or {}
+    title_lab = data["title_lab"] or _default_project_state()["title_lab"]
     workshop = data["workshop"] or {}
     storyboard = data["storyboard"] or {}
     video_lab = data["video_lab"] or _default_project_state()["video_lab"]
@@ -420,6 +485,8 @@ def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
         ],
         y,
     )
+
+    y = draw_section("标题包装建议", _title_pack_lines(title_lab), y)
 
     y = draw_section(
         "1. 故事卡",

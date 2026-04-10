@@ -4,7 +4,37 @@ const CURRENT_PROJECT_KEY = 'ai_short_drama_current_project_id_v1';
 const AUTO_SAVE_DELAY_MS = 3000;
 
 const EMPTY_STATE = {
+  story_inputs: {
+    idea: '',
+    theme: '',
+    tone: '',
+    structure: '',
+    template_id: '',
+  },
   story_card: null,
+  review_lab: {
+    latest_review: {
+      summary: '',
+      overall_score: 0,
+      dimensions: [],
+      top_issues: [],
+      priority_actions: [],
+      low_score_dimensions: [],
+    },
+    rewrite_candidates: [],
+    last_review_stage: '',
+    last_review_time: '',
+  },
+  title_lab: {
+    current_title: '',
+    summary: '',
+    evaluated_title: null,
+    recommended_title_id: '',
+    recommended_reason: '',
+    title_suggestions: [],
+    topic_tags: [],
+    updated_at: '',
+  },
   workshop: null,
   storyboard: null,
   video_lab: null,
@@ -78,6 +108,11 @@ function normalizeStoryCard(storyCard) {
     anchor_points: normalizeStringList(storyCard.anchor_points),
     hook: toText(storyCard.hook),
     ending_type: toText(storyCard.ending_type),
+    viral_template_id: toText(storyCard.viral_template_id),
+    viral_template_name: toText(storyCard.viral_template_name),
+    opening_hook_strategy: toText(storyCard.opening_hook_strategy),
+    conflict_escalation_strategy: toText(storyCard.conflict_escalation_strategy),
+    cliffhanger_strategy: toText(storyCard.cliffhanger_strategy),
   };
 
   if (
@@ -88,11 +123,154 @@ function normalizeStoryCard(storyCard) {
     normalized.core_conflict ||
     normalized.anchor_points.length ||
     normalized.hook ||
-    normalized.ending_type
+    normalized.ending_type ||
+    normalized.viral_template_id ||
+    normalized.viral_template_name ||
+    normalized.opening_hook_strategy ||
+    normalized.conflict_escalation_strategy ||
+    normalized.cliffhanger_strategy
   ) {
     return normalized;
   }
   return null;
+}
+
+function normalizeStoryInputs(storyInputs) {
+  const parsed = (storyInputs && typeof storyInputs === 'object') ? storyInputs : {};
+  return {
+    idea: toText(parsed.idea),
+    theme: toText(parsed.theme),
+    tone: toText(parsed.tone),
+    structure: toText(parsed.structure),
+    template_id: toText(parsed.template_id),
+  };
+}
+
+function normalizeTitleScore(item, index) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+  return {
+    id: toText(item.id) || `title_score_${index + 1}`,
+    name: toText(item.name) || `维度${index + 1}`,
+    score: Math.max(0, Math.min(100, toInt(item.score, 0, 0))),
+    reason: toText(item.reason),
+  };
+}
+
+function normalizeTitleSuggestion(item, index) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+  const scores = Array.isArray(item.scores)
+    ? item.scores.map((entry, idx) => normalizeTitleScore(entry, idx)).filter(Boolean)
+    : [];
+  const normalized = {
+    id: toText(item.id) || `title_${index + 1}`,
+    title: toText(item.title),
+    style: toText(item.style),
+    hook_point: toText(item.hook_point),
+    overall_score: Math.max(0, Math.min(100, toInt(item.overall_score, 0, 0))),
+    verdict: toText(item.verdict),
+    reason: toText(item.reason),
+    scores,
+  };
+  return normalized.title ? normalized : null;
+}
+
+function normalizeTitleLab(titleLab) {
+  const base = EMPTY_STATE.title_lab;
+  const parsed = (titleLab && typeof titleLab === 'object') ? titleLab : {};
+  const evaluatedTitle = normalizeTitleSuggestion(parsed.evaluated_title, 0);
+  const titleSuggestions = Array.isArray(parsed.title_suggestions)
+    ? parsed.title_suggestions.map((item, index) => normalizeTitleSuggestion(item, index)).filter(Boolean)
+    : [];
+  let recommendedTitleId = toText(parsed.recommended_title_id);
+  if (recommendedTitleId && !titleSuggestions.some((item) => item.id === recommendedTitleId)) {
+    recommendedTitleId = '';
+  }
+  if (!recommendedTitleId && titleSuggestions.length) {
+    recommendedTitleId = titleSuggestions[0].id;
+  }
+  return {
+    current_title: toText(parsed.current_title) || base.current_title,
+    summary: toText(parsed.summary) || base.summary,
+    evaluated_title: evaluatedTitle,
+    recommended_title_id: recommendedTitleId,
+    recommended_reason: toText(parsed.recommended_reason) || base.recommended_reason,
+    title_suggestions: titleSuggestions,
+    topic_tags: normalizeStringList(parsed.topic_tags),
+    updated_at: toText(parsed.updated_at) || base.updated_at,
+  };
+}
+
+function normalizeReviewLab(reviewLab) {
+  const base = EMPTY_STATE.review_lab;
+  const parsed = (reviewLab && typeof reviewLab === 'object') ? reviewLab : {};
+  const latest = (parsed.latest_review && typeof parsed.latest_review === 'object') ? parsed.latest_review : {};
+  const dimensions = Array.isArray(latest.dimensions)
+    ? latest.dimensions
+        .map((item, index) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+          return {
+            id: toText(item.id) || `dimension_${index + 1}`,
+            name: toText(item.name) || `维度${index + 1}`,
+            score: Math.max(0, Math.min(100, toInt(item.score, 0, 0))),
+            reason: toText(item.reason),
+            suggestion: toText(item.suggestion),
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  const rewriteCandidates = Array.isArray(parsed.rewrite_candidates)
+    ? parsed.rewrite_candidates
+        .map((item, index) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+          const target = ['story_card', 'workshop', 'storyboard'].includes(toText(item.target))
+            ? toText(item.target)
+            : 'story_card';
+          const storyCard = normalizeStoryCard(item.story_card);
+          const workshop = normalizeWorkshopData(item.workshop);
+          const storyboard = normalizeStoryboardData(item.storyboard);
+          const hasPayload =
+            (target === 'story_card' && storyCard) ||
+            (target === 'workshop' && workshop) ||
+            (target === 'storyboard' && storyboard);
+          if (!hasPayload) {
+            return null;
+          }
+          return {
+            id: toText(item.id) || `rewrite_${index + 1}`,
+            title: toText(item.title) || `改写版本 ${index + 1}`,
+            strategy: toText(item.strategy),
+            focus_dimensions: normalizeStringList(item.focus_dimensions),
+            target,
+            story_card: storyCard,
+            workshop,
+            storyboard,
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  return {
+    latest_review: {
+      summary: toText(latest.summary),
+      overall_score: Math.max(0, Math.min(100, toInt(latest.overall_score, 0, 0))),
+      dimensions,
+      top_issues: normalizeStringList(latest.top_issues),
+      priority_actions: normalizeStringList(latest.priority_actions),
+      low_score_dimensions: normalizeStringList(latest.low_score_dimensions),
+    },
+    rewrite_candidates: rewriteCandidates,
+    last_review_stage: toText(parsed.last_review_stage) || base.last_review_stage,
+    last_review_time: toText(parsed.last_review_time) || base.last_review_time,
+  };
 }
 
 function normalizeWorkshopData(workshop) {
@@ -342,6 +520,7 @@ let draftRelationNodes = [];
 let visualUndoStack = [];
 let videoPollTimer = null;
 let providersList = [];
+let storyTemplates = [];
 const VIDEO_POLL_INTERVAL_MS = 15000;
 
 function setAutoSaveStatus(text) {
@@ -358,10 +537,73 @@ function formatTimeHHmmss(dateObj = new Date()) {
   return `${h}:${m}:${s}`;
 }
 
+function getSelectedStoryTemplate() {
+  const templateId = bind('story-template-select')?.value || state.story_inputs?.template_id || '';
+  return storyTemplates.find((item) => item.id === templateId) || null;
+}
+
+function renderStoryTemplateSummary() {
+  const summary = bind('story-template-summary');
+  if (!summary) {
+    return;
+  }
+  const template = getSelectedStoryTemplate();
+  if (!template) {
+    summary.textContent = '不使用模板时，会按你的创意自由生成。';
+    return;
+  }
+  summary.textContent = [
+    `模板：${template.name} / ${template.category}`,
+    `钩子：${template.opening_hook_formula || '-'}`,
+    `升级：${(template.conflict_escalation || []).join(' -> ') || '-'}`,
+    `悬念：${template.cliffhanger_strategy || '-'}`,
+  ].join('\n');
+}
+
+function syncStoryInputsToForm() {
+  const storyInputs = normalizeStoryInputs(state.story_inputs);
+  const idea = bind('idea');
+  const theme = bind('theme');
+  const tone = bind('tone');
+  const structure = bind('structure');
+  const templateSelect = bind('story-template-select');
+
+  if (idea) {
+    idea.value = storyInputs.idea || '';
+  }
+  if (theme) {
+    theme.value = storyInputs.theme || '';
+  }
+  if (tone) {
+    tone.value = storyInputs.tone || '';
+  }
+  if (structure) {
+    structure.value = storyInputs.structure || '';
+  }
+  if (templateSelect) {
+    templateSelect.value = storyInputs.template_id || '';
+  }
+  renderStoryTemplateSummary();
+}
+
+function saveStoryInputsFromForm() {
+  state.story_inputs = normalizeStoryInputs({
+    idea: bind('idea')?.value,
+    theme: bind('theme')?.value,
+    tone: bind('tone')?.value,
+    structure: bind('structure')?.value,
+    template_id: bind('story-template-select')?.value,
+  });
+  saveState();
+}
+
 function normalizeState(input) {
   const parsed = (input && typeof input === 'object') ? input : {};
   return {
+    story_inputs: normalizeStoryInputs(parsed.story_inputs),
     story_card: normalizeStoryCard(parsed.story_card),
+    review_lab: normalizeReviewLab(parsed.review_lab),
+    title_lab: normalizeTitleLab(parsed.title_lab),
     workshop: normalizeWorkshopData(parsed.workshop),
     storyboard: normalizeStoryboardData(parsed.storyboard),
     video_lab: normalizeVideoState(parsed.video_lab),
@@ -370,7 +612,10 @@ function normalizeState(input) {
 
 function applyState(newState) {
   const normalized = normalizeState(newState);
+  state.story_inputs = normalized.story_inputs;
   state.story_card = normalized.story_card;
+  state.review_lab = normalized.review_lab;
+  state.title_lab = normalized.title_lab;
   state.workshop = normalized.workshop;
   state.storyboard = normalized.storyboard;
   state.video_lab = normalized.video_lab;
@@ -433,6 +678,7 @@ function clearOutputsByPage() {
     'storyboard-output',
     'command-output',
     'export-output',
+    'title-pack-output',
     'video-script-output',
     'video-task-output',
     'video-long-output',
@@ -927,6 +1173,7 @@ async function switchProject(projectId, opts = {}) {
   saveCurrentProjectId(currentProjectId);
   currentProjectMeta = data.project || null;
   applyState(data.state || EMPTY_STATE);
+  syncStoryInputsToForm();
 
   if (currentProjectMeta?.last_provider) {
     currentProvider = currentProjectMeta.last_provider;
@@ -936,6 +1183,7 @@ async function switchProject(projectId, opts = {}) {
   clearOutputsByPage();
   restoreOutputsOnPageLoad();
   refreshVisualEditors();
+  renderReviewLab();
   renderProjectMeta();
   await loadProjects();
   try {
@@ -1081,6 +1329,34 @@ function bindProjectDrawerActions() {
         updateDrawerOpen(false);
       }
     });
+  }
+}
+
+async function loadStoryTemplates() {
+  const select = bind('story-template-select');
+  const summary = bind('story-template-summary');
+  if (!select) {
+    return;
+  }
+
+  try {
+    const data = await fetchJson('/api/story-templates', { method: 'GET' });
+    if (!data.ok) {
+      throw new Error(data.error || 'load templates failed');
+    }
+
+    storyTemplates = Array.isArray(data.templates) ? data.templates : [];
+    select.innerHTML = [
+      '<option value="">不使用模板（自由发挥）</option>',
+      ...storyTemplates.map((item) => `<option value="${item.id}">${item.name} / ${item.category}</option>`),
+    ].join('');
+    syncStoryInputsToForm();
+  } catch (err) {
+    console.error('Failed to load story templates:', err);
+    storyTemplates = [];
+    if (summary) {
+      summary.textContent = `模板加载失败：${err.message}`;
+    }
   }
 }
 
@@ -1542,6 +1818,10 @@ function formatStoryResult(result) {
   text += `【属性】\n主题：${sc.theme || '-'}\n基调：${sc.tone || '-'}\n结构：${sc.structure_template || '-'}\n结局：${sc.ending_type || '-'}\n\n`;
   
   text += `【结构锚点】\n`;
+  text += `銆愮垎娆炬ā鏉裤€慭n${sc.viral_template_name || '未使用'}\n\n`;
+  text += `銆愬紑鍦洪挬瀛愮瓥鐣ャ€慭n${sc.opening_hook_strategy || '-'}\n\n`;
+  text += `銆愬啿绐佸崌绾ц妭濂忋€慭n${sc.conflict_escalation_strategy || '-'}\n\n`;
+  text += `銆愮粨灏剧暀鎮康銆慭n${sc.cliffhanger_strategy || '-'}\n\n`;
   if (sc.anchor_points && sc.anchor_points.length) {
     sc.anchor_points.forEach((pt, i) => {
       text += `${i + 1}. ${pt}\n`;
@@ -1559,6 +1839,285 @@ function formatStoryResult(result) {
     text += '-\n';
   }
   return text;
+}
+
+function formatStoryResultV2(result) {
+  const sc = result.story_card || result || {};
+  const nextQs = result.next_questions || [];
+
+  let text = `【一句话故事】\n${sc.logline || '-'}\n\n`;
+  text += `【核心冲突】\n${sc.core_conflict || '-'}\n\n`;
+  text += `【前三秒钩子】\n${sc.hook || '-'}\n\n`;
+  text += `【爆款模板】\n${sc.viral_template_name || '未使用'}\n\n`;
+  text += `【开场钩子策略】\n${sc.opening_hook_strategy || '-'}\n\n`;
+  text += `【冲突升级节奏】\n${sc.conflict_escalation_strategy || '-'}\n\n`;
+  text += `【结尾留悬念】\n${sc.cliffhanger_strategy || '-'}\n\n`;
+  text += `【属性】\n主题：${sc.theme || '-'}\n基调：${sc.tone || '-'}\n结构：${sc.structure_template || '-'}\n结局：${sc.ending_type || '-'}\n\n`;
+  text += `【结构锚点】\n`;
+
+  if (sc.anchor_points && sc.anchor_points.length) {
+    sc.anchor_points.forEach((pt, i) => {
+      text += `${i + 1}. ${pt}\n`;
+    });
+  } else {
+    text += '-\n';
+  }
+
+  text += `\n【建议追问】\n`;
+  if (nextQs.length) {
+    nextQs.forEach((q) => {
+      text += `- ${q}\n`;
+    });
+  } else {
+    text += '-\n';
+  }
+
+  return text;
+}
+
+function buildReviewProjectState() {
+  return {
+    story_inputs: state.story_inputs,
+    story_card: state.story_card,
+    workshop: state.workshop,
+    storyboard: state.storyboard,
+  };
+}
+
+function inferReviewStage() {
+  if (state.storyboard) {
+    return 'storyboard';
+  }
+  if (state.workshop) {
+    return 'workshop';
+  }
+  if (state.story_card) {
+    return 'story_engine';
+  }
+  return '';
+}
+
+function stageSupportsRewrite(stage) {
+  return ['story_engine', 'workshop', 'storyboard'].includes(stage);
+}
+
+function reviewCandidatePreview(item) {
+  if (item.target === 'workshop') {
+    return formatWorkshopResult(item.workshop);
+  }
+  if (item.target === 'storyboard') {
+    return formatStoryboardResult(item.storyboard);
+  }
+  return formatStoryResultV2({ story_card: item.story_card });
+}
+
+function reviewTargetLabel(target) {
+  if (target === 'workshop') {
+    return '剧本工坊';
+  }
+  if (target === 'storyboard') {
+    return '分镜工厂';
+  }
+  return '故事引擎';
+}
+
+async function runStoryReviewFlow(currentStage, { withRewrite = false } = {}) {
+  const stage = currentStage || inferReviewStage();
+  if (!stage || !state.story_card) {
+    state.review_lab = normalizeReviewLab(null);
+    renderReviewLab();
+    return;
+  }
+
+  const reviewData = await runStage('story_review', {
+    current_stage: stage,
+    project_state: buildReviewProjectState(),
+  });
+
+  if (!reviewData.ok) {
+    state.review_lab.latest_review = normalizeReviewLab(null).latest_review;
+    state.review_lab.rewrite_candidates = [];
+    state.review_lab.last_review_stage = stage;
+    state.review_lab.last_review_time = new Date().toISOString();
+    renderReviewLab(`评分失败：${reviewData.error}`);
+    return;
+  }
+
+  state.review_lab.latest_review = normalizeReviewLab({ latest_review: reviewData.result }).latest_review;
+  state.review_lab.last_review_stage = stage;
+  state.review_lab.last_review_time = new Date().toISOString();
+
+  if (withRewrite && state.review_lab.latest_review.low_score_dimensions.length) {
+    const rewriteData = await runStage('story_rewrite', {
+      current_stage: stage,
+      project_state: buildReviewProjectState(),
+      review_result: state.review_lab.latest_review,
+    });
+    if (rewriteData.ok) {
+      state.review_lab.rewrite_candidates = normalizeReviewLab({
+        rewrite_candidates: rewriteData.result.candidates,
+      }).rewrite_candidates;
+    } else {
+      state.review_lab.rewrite_candidates = [];
+    }
+  } else {
+    state.review_lab.rewrite_candidates = [];
+  }
+
+  saveState();
+  renderReviewLab();
+}
+
+async function applyReviewCandidate(candidateId) {
+  const candidates = state.review_lab?.rewrite_candidates || [];
+  const selected = candidates.find((item) => String(item.id) === String(candidateId));
+  if (!selected) {
+    return;
+  }
+
+  let rerunStage = 'story_engine';
+  if (selected.target === 'workshop' && selected.workshop) {
+    state.workshop = normalizeWorkshopData(selected.workshop);
+    state.storyboard = null;
+    rerunStage = 'workshop';
+  } else if (selected.target === 'storyboard' && selected.storyboard) {
+    state.storyboard = normalizeStoryboardData(selected.storyboard);
+    rerunStage = 'storyboard';
+  } else if (selected.story_card) {
+    state.story_card = normalizeStoryCard(selected.story_card);
+    state.workshop = null;
+    state.storyboard = null;
+    rerunStage = 'story_engine';
+  } else {
+    return;
+  }
+
+  state.review_lab.rewrite_candidates = [];
+  saveState();
+
+  updateOutput('story-output', formatStoryResultV2({ story_card: state.story_card }));
+  updateOutput('workshop-output', state.workshop ? formatWorkshopResult(state.workshop) : '');
+  updateOutput('storyboard-output', state.storyboard ? formatStoryboardResult(state.storyboard) : '');
+  refreshVisualEditors();
+  renderReviewLab('已应用改写版本，正在重新评分...');
+  await runStoryReviewFlow(rerunStage, { withRewrite: true });
+}
+
+function renderReviewLab(statusText = '') {
+  const panel = bind('review-panel');
+  if (!panel) {
+    return;
+  }
+
+  const reviewLab = normalizeReviewLab(state.review_lab);
+  const review = reviewLab.latest_review;
+  const candidates = reviewLab.rewrite_candidates || [];
+  const hasContent =
+    review.summary ||
+    review.dimensions.length ||
+    review.top_issues.length ||
+    review.priority_actions.length ||
+    candidates.length ||
+    statusText;
+
+  if (!hasContent) {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+
+  const dimsHtml = review.dimensions.length
+    ? review.dimensions
+        .map(
+          (item) => `
+            <div class="panel soft" style="padding:10px;">
+              <div style="display:flex; justify-content:space-between; gap:12px;">
+                <strong>${item.name}</strong>
+                <span>${item.score}</span>
+              </div>
+              <div class="hint" style="margin-top:6px;">问题：${item.reason || '-'}</div>
+              <div class="hint" style="margin-top:4px;">建议：${item.suggestion || '-'}</div>
+            </div>
+          `,
+        )
+        .join('')
+    : '<p class="hint">暂无评分结果</p>';
+
+  const issuesHtml = review.top_issues.length
+    ? review.top_issues.map((item) => `<li>${item}</li>`).join('')
+    : '<li>-</li>';
+
+  const actionsHtml = review.priority_actions.length
+    ? review.priority_actions.map((item) => `<li>${item}</li>`).join('')
+    : '<li>-</li>';
+
+  const candidateHtml = candidates.length
+    ? candidates
+        .map(
+          (item) => `
+            <article class="panel" style="padding:12px; margin-top:10px;">
+              <h4 style="margin-bottom:6px;">${item.title}</h4>
+              <div class="hint">应用范围：${reviewTargetLabel(item.target)}</div>
+              <div class="hint">策略：${item.strategy || '-'}</div>
+              <div class="hint" style="margin-top:4px;">聚焦维度：${(item.focus_dimensions || []).join('、') || '-'}</div>
+              <pre class="output" style="margin-top:10px; max-height:220px;">${reviewCandidatePreview(item)}</pre>
+              <button class="secondary" data-review-candidate-id="${item.id}">使用这个版本</button>
+            </article>
+          `,
+        )
+        .join('')
+    : '<p class="hint">当前没有自动改稿候选版本。</p>';
+
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+      <h3 style="margin:0;">剧本评分器</h3>
+      <button id="btn-review-rerun" class="secondary">重新评分</button>
+    </div>
+    ${statusText ? `<p class="hint" style="margin-top:8px;">${statusText}</p>` : ''}
+    <div style="margin-top:10px;"><strong>总分：</strong>${review.overall_score || 0}</div>
+    <div class="hint" style="margin-top:6px;">${review.summary || '暂无整体评语'}</div>
+    <div class="grid two" style="margin-top:12px;">${dimsHtml}</div>
+    <div class="grid two" style="margin-top:12px;">
+      <div>
+        <h4 style="margin-bottom:6px;">主要问题</h4>
+        <ul>${issuesHtml}</ul>
+      </div>
+      <div>
+        <h4 style="margin-bottom:6px;">优先修改动作</h4>
+        <ul>${actionsHtml}</ul>
+      </div>
+    </div>
+    <div style="margin-top:12px;" class="hint">最近评分阶段：${reviewLab.last_review_stage || '-'} | 时间：${reviewLab.last_review_time || '-'}</div>
+    <div style="margin-top:12px;">
+      <h4 style="margin-bottom:6px;">自动改稿候选</h4>
+      ${candidateHtml}
+    </div>
+  `;
+
+  const rerunBtn = bind('btn-review-rerun');
+  if (rerunBtn) {
+    rerunBtn.addEventListener('click', () => {
+      renderReviewLab('正在重新评分...');
+      runStoryReviewFlow(reviewLab.last_review_stage || inferReviewStage(), {
+        withRewrite: stageSupportsRewrite(reviewLab.last_review_stage || inferReviewStage()),
+      }).catch((err) => {
+        renderReviewLab(`重新评分失败：${err.message}`);
+      });
+    });
+  }
+
+  panel.querySelectorAll('[data-review-candidate-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const candidateId = button.getAttribute('data-review-candidate-id');
+      if (!candidateId) {
+        return;
+      }
+      applyReviewCandidate(candidateId).catch((err) => {
+        renderReviewLab(`应用改写失败：${err.message}`);
+      });
+    });
+  });
 }
 
 function formatWorkshopResult(ws) {
@@ -1632,16 +2191,33 @@ function formatStoryboardResult(sb) {
 }
 
 function bindWorkshopActions() {
+  ['idea', 'theme', 'tone', 'structure', 'story-template-select'].forEach((id) => {
+    const element = bind(id);
+    if (!element) {
+      return;
+    }
+    element.addEventListener('input', saveStoryInputsFromForm);
+    element.addEventListener('change', () => {
+      saveStoryInputsFromForm();
+      if (id === 'story-template-select') {
+        renderStoryTemplateSummary();
+      }
+    });
+  });
+
   const btnStory = bind('btn-story');
   if (btnStory) {
     btnStory.addEventListener('click', async () => {
       updateOutput('story-output', '生成中...');
-      const payload = {
-        idea: bind('idea')?.value.trim() || '',
-        theme: bind('theme')?.value.trim() || '',
-        tone: bind('tone')?.value.trim() || '',
-        structure: bind('structure')?.value.trim() || '',
-      };
+      state.story_inputs = normalizeStoryInputs({
+        idea: bind('idea')?.value,
+        theme: bind('theme')?.value,
+        tone: bind('tone')?.value,
+        structure: bind('structure')?.value,
+        template_id: bind('story-template-select')?.value,
+      });
+      saveState();
+      const payload = { ...state.story_inputs };
 
       const data = await runStage('story_engine', payload);
       if (!data.ok) {
@@ -1652,19 +2228,24 @@ function bindWorkshopActions() {
       state.story_card = normalizeStoryCard(data.result.story_card);
       saveState();
 
-      updateOutput('story-output', formatStoryResult(data.result));
+      updateOutput('story-output', formatStoryResultV2(data.result));
+      renderReviewLab('正在评分并生成改稿建议...');
+      await runStoryReviewFlow('story_engine', { withRewrite: true });
     });
   }
 
   const btnStoryCompare = bind('btn-story-compare');
   if (btnStoryCompare) {
     btnStoryCompare.addEventListener('click', async () => {
-      const payload = {
-        idea: bind('idea')?.value.trim() || '',
-        theme: bind('theme')?.value.trim() || '',
-        tone: bind('tone')?.value.trim() || '',
-        structure: bind('structure')?.value.trim() || '',
-      };
+      state.story_inputs = normalizeStoryInputs({
+        idea: bind('idea')?.value,
+        theme: bind('theme')?.value,
+        tone: bind('tone')?.value,
+        structure: bind('structure')?.value,
+        template_id: bind('story-template-select')?.value,
+      });
+      saveState();
+      const payload = { ...state.story_inputs };
 
       const availableProviders = providersList.filter(p => p.has_api_key);
       if (availableProviders.length < 2) {
@@ -1696,7 +2277,7 @@ function bindWorkshopActions() {
       for (const [providerId, result] of Object.entries(data.results)) {
         const provider = providersList.find(p => p.id === providerId);
         const providerName = provider ? provider.name : providerId;
-        const formattedResult = formatStoryResult(result);
+        const formattedResult = formatStoryResultV2(result);
         html += `
           <div class="panel soft">
             <h3>${providerName}</h3>
@@ -1740,6 +2321,8 @@ function bindWorkshopActions() {
 
       updateOutput('workshop-output', formatWorkshopResult(state.workshop));
       refreshVisualEditors();
+      renderReviewLab('正在根据最新剧本结构评分...');
+      await runStoryReviewFlow('workshop', { withRewrite: true });
     });
   }
 
@@ -1762,6 +2345,8 @@ function bindWorkshopActions() {
       saveState();
 
       updateOutput('storyboard-output', formatStoryboardResult(state.storyboard));
+      renderReviewLab('正在根据最新分镜评分...');
+      await runStoryReviewFlow('storyboard', { withRewrite: true });
     });
   }
 
@@ -1790,6 +2375,9 @@ function bindWorkshopActions() {
         state.storyboard = normalizeStoryboardData(data.result.updated_state.storyboard) || state.storyboard;
         saveState();
         refreshVisualEditors();
+        renderReviewLab('正在根据最新修改重新评分...');
+        const nextStage = inferReviewStage();
+        await runStoryReviewFlow(nextStage, { withRewrite: stageSupportsRewrite(nextStage) });
       }
 
       let cmdText = `【理解命令】\n${data.result.command_understanding || '-'}\n\n`;
@@ -1982,12 +2570,65 @@ function buildVideoPromptsFromStoryboard(storyboard) {
     .join('\n\n');
 }
 
+function formatTitlePackagingResult(titleLab) {
+  const data = normalizeTitleLab(titleLab);
+  const lines = [];
+  lines.push('【标题包装总览】');
+  lines.push(data.summary || '-');
+  lines.push('');
+  lines.push(`【当前标题】${data.current_title || '-'}`);
+  lines.push(`【推荐标题ID】${data.recommended_title_id || '-'}`);
+  lines.push(`【推荐理由】${data.recommended_reason || '-'}`);
+  lines.push('');
+
+  if (data.evaluated_title) {
+    lines.push('【当前标题评估】');
+    lines.push(`${data.evaluated_title.title || '-'} | 总分 ${data.evaluated_title.overall_score || 0} | ${data.evaluated_title.verdict || '-'}`);
+    lines.push(`风格: ${data.evaluated_title.style || '-'}`);
+    lines.push(`抓人点: ${data.evaluated_title.hook_point || '-'}`);
+    lines.push(`说明: ${data.evaluated_title.reason || '-'}`);
+    (data.evaluated_title.scores || []).forEach((score) => {
+      lines.push(`- ${score.name}: ${score.score}分 | ${score.reason || '-'}`);
+    });
+    lines.push('');
+  }
+
+  lines.push('【标题建议】');
+  if (data.title_suggestions.length) {
+    data.title_suggestions.forEach((item, index) => {
+      lines.push(`${index + 1}. [${item.id}] ${item.title}`);
+      lines.push(`   总分: ${item.overall_score || 0} | 结论: ${item.verdict || '-'}`);
+      lines.push(`   风格: ${item.style || '-'} | 抓人点: ${item.hook_point || '-'}`);
+      lines.push(`   理由: ${item.reason || '-'}`);
+      (item.scores || []).forEach((score) => {
+        lines.push(`   - ${score.name}: ${score.score}分 | ${score.reason || '-'}`);
+      });
+    });
+  } else {
+    lines.push('-');
+  }
+
+  lines.push('');
+  lines.push('【话题标签建议】');
+  if (data.topic_tags.length) {
+    data.topic_tags.forEach((item) => lines.push(item));
+  } else {
+    lines.push('-');
+  }
+
+  return lines.join('\n');
+}
+
 function buildExportPayload() {
   return {
     project: currentProjectMeta ? { ...currentProjectMeta } : null,
     current_provider: currentProvider,
     exported_at: new Date().toISOString(),
     story_card: normalizeStoryCard(state.story_card),
+    title_lab: normalizeTitleLab({
+      ...state.title_lab,
+      current_title: bind('current-title-input')?.value || state.title_lab?.current_title || '',
+    }),
     workshop: normalizeWorkshopData(state.workshop),
     storyboard: normalizeStoryboardData(state.storyboard),
     video_lab: normalizeVideoState(getVideoState()),
@@ -1997,7 +2638,7 @@ function buildExportPayload() {
 
 function restoreOutputsOnPageLoad() {
   if (bind('story-output') && state.story_card) {
-    updateOutput('story-output', formatStoryResult({ story_card: state.story_card }));
+    updateOutput('story-output', formatStoryResultV2({ story_card: state.story_card }));
   }
   if (bind('workshop-output') && state.workshop) {
     updateOutput('workshop-output', formatWorkshopResult(state.workshop));
@@ -2007,6 +2648,14 @@ function restoreOutputsOnPageLoad() {
   }
   if (bind('export-output') && hasDataForExport()) {
     updateOutput('export-output', '已检测到可导出的本地数据。');
+  }
+  if (bind('current-title-input')) {
+    bind('current-title-input').value = state.title_lab?.current_title || '';
+  }
+  if (bind('title-pack-output') && state.title_lab && state.title_lab.title_suggestions?.length) {
+    updateOutput('title-pack-output', formatTitlePackagingResult(state.title_lab));
+  } else if (bind('title-pack-output')) {
+    updateOutput('title-pack-output', '');
   }
 
   const video = getVideoState();
@@ -2253,6 +2902,49 @@ function extractPromptFromScript(scriptText) {
 }
 
 function bindExportActions() {
+  const currentTitleInput = bind('current-title-input');
+  if (currentTitleInput) {
+    currentTitleInput.addEventListener('input', () => {
+      state.title_lab = normalizeTitleLab({
+        ...state.title_lab,
+        current_title: currentTitleInput.value,
+      });
+      saveState();
+    });
+  }
+
+  const btnTitlePack = bind('btn-title-packaging');
+  if (btnTitlePack) {
+    btnTitlePack.addEventListener('click', async () => {
+      if (!hasDataForExport()) {
+        updateOutput('title-pack-output', '暂无可分析内容，请先生成故事、剧本或分镜。');
+        return;
+      }
+
+      updateOutput('title-pack-output', '正在生成标题建议与话题标签...');
+      const payload = {
+        project: currentProjectMeta ? { ...currentProjectMeta } : null,
+        current_title: bind('current-title-input')?.value?.trim() || '',
+        story_card: normalizeStoryCard(state.story_card),
+        workshop: normalizeWorkshopData(state.workshop),
+        storyboard: normalizeStoryboardData(state.storyboard),
+      };
+      const data = await runStage('title_packaging', payload);
+      if (!data.ok) {
+        updateOutput('title-pack-output', `错误: ${data.error}\n${data.detail || ''}`);
+        return;
+      }
+
+      state.title_lab = normalizeTitleLab({
+        ...data.result,
+        current_title: bind('current-title-input')?.value?.trim() || data.result.current_title || '',
+        updated_at: new Date().toISOString(),
+      });
+      saveState();
+      updateOutput('title-pack-output', formatTitlePackagingResult(state.title_lab));
+    });
+  }
+
   const btnExport = bind('btn-export');
   if (btnExport) {
     btnExport.addEventListener('click', async () => {
@@ -2910,6 +3602,7 @@ async function initApp() {
   bindVideoActions();
 
   await initProjectContext();
+  await loadStoryTemplates();
   restoreOutputsOnPageLoad();
   refreshVisualEditors();
   loadProviders();

@@ -8,7 +8,37 @@ def _utc_now_iso() -> str:
 
 def _default_project_state() -> Dict[str, Any]:
     return {
+        "story_inputs": {
+            "idea": "",
+            "theme": "",
+            "tone": "",
+            "structure": "",
+            "template_id": "",
+        },
         "story_card": None,
+        "review_lab": {
+            "latest_review": {
+                "summary": "",
+                "overall_score": 0,
+                "dimensions": [],
+                "top_issues": [],
+                "priority_actions": [],
+                "low_score_dimensions": [],
+            },
+            "rewrite_candidates": [],
+            "last_review_stage": "",
+            "last_review_time": "",
+        },
+        "title_lab": {
+            "current_title": "",
+            "summary": "",
+            "evaluated_title": None,
+            "recommended_title_id": "",
+            "recommended_reason": "",
+            "title_suggestions": [],
+            "topic_tags": [],
+            "updated_at": "",
+        },
         "workshop": None,
         "storyboard": None,
         "video_lab": {

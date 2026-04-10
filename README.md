@@ -5,14 +5,23 @@
 
 - 项目管理
 - 故事生成（story engine）
+- 爆款故事模板
+- 剧本评分 / 自动改稿
 - 剧情工坊（workshop）
 - 分镜生成（storyboard）
+- 标题包装建议
 - 视频脚本生成
 - 视频任务创建 / 查询
 - DOCX / PDF 导出
 - 网页搜索辅助
 
-## 最近更新（2026-04-09）
+## 最近更新（2026-04-10）
+
+- 故事引擎新增爆款模板能力：支持在前端选择故事模板，并自动把模板的钩子、冲突升级和结尾悬念策略注入生成流程。
+- 新增剧本评分器：可对故事卡、剧情工坊、分镜结果进行结构化评分，输出问题摘要、低分维度和优先修改动作。
+- 新增自动改稿流程：评分后可生成多个改写候选版本，并支持一键应用到当前项目状态。
+- 新增标题包装能力：支持评估当前标题、生成多个备选标题、推荐理由和平台话题标签。
+- 导出中心已接入标题包装结果，Markdown / DOCX / PDF 导出时会一并带出标题建议内容。
 
 - 视频实验室新增图生视频本地上传能力：支持拖拽/点击上传、上传进度条、已选图片删除按钮。
 - 图生参考图上传后自动填充 `image_url`，并在创建任务时自动判定 `text / image / start_end` 模式。
@@ -58,6 +67,7 @@ VideoCreateTool-main/
 │  │  ├─ export_service.py
 │  │  ├─ llm_service.py
 │  │  ├─ prompt_service.py
+│  │  ├─ story_template_service.py
 │  │  └─ video_service.py
 │  └─ utils/
 │     ├─ __init__.py
@@ -129,9 +139,13 @@ VideoCreateTool-main/
 
 ### agent_routes.py
 AI 创作流程接口，例如：
+- 获取故事模板列表
 - 获取模型 provider 列表
 - 多模型比较
 - story engine
+- story review
+- story rewrite
+- title packaging
 - workshop
 - storyboard
 - command
@@ -164,10 +178,20 @@ AI 创作流程接口，例如：
 ### prompt_service.py
 负责所有提示词拼接，例如：
 - 故事生成提示词
+- 故事评分提示词
+- 自动改稿提示词
+- 标题包装提示词
 - workshop 提示词
 - 分镜提示词
 - command 提示词
 - 视频脚本提示词
+
+### story_template_service.py
+负责：
+- 管理内置爆款故事模板
+- 提供模板列表查询
+- 根据 `template_id` 返回模板约束
+- 给故事引擎提供钩子、冲突升级、结尾悬念等模板信息
 
 ### video_service.py
 负责：
@@ -180,6 +204,7 @@ AI 创作流程接口，例如：
 ### export_service.py
 负责：
 - 导出内容标准化
+- 标题包装结果整理
 - Markdown 生成
 - DOCX 生成
 - PDF 生成
