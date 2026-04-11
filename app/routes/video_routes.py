@@ -11,6 +11,7 @@ from app.config import BASE_DIR, DEFAULT_PROVIDER, QINIU_VIDEO_MODEL
 from app.services.llm_service import _call_provider_text
 from app.services.prompt_service import _video_script_prompt
 from app.services.video_service import (
+    _build_video_cost_meta,
     _create_video_task,
     _extract_last_frame_to_qiniu,
     _extend_video_prompts,
@@ -256,6 +257,7 @@ def create_long_video_task():
                     "size": size,
                     "prompt_extend": prompt_extend,
                     "segments": segments_result,
+                    "meta": _build_video_cost_meta(str(video_model), str(size), int(total_duration), payload),
                 },
             }
         )

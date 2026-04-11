@@ -240,7 +240,7 @@ def run_agent_stage():
             result = _normalize_cover_packaging_result(result)
         elif stage == "cover_image_generate":
             result = _create_cover_image_task(payload)
-            response = {"actual_cost": 0.0, "retry_count": 0}
+            response = result.get("meta", {"actual_cost": 0.0, "retry_count": 0})
         elif stage == "cover_image_query":
             result = _query_cover_image_task(str(payload.get("task_id", "") if isinstance(payload, dict) else ""))
             response = {"actual_cost": 0.0, "retry_count": 0}
@@ -270,22 +270,22 @@ def run_agent_stage():
             result = _normalize_command_result(result)
             result = _apply_command_fallback(payload, result)
         elif stage == "global_router":
-            result = _call_provider_json(
+            response = _call_provider_json(
                 provider,
                 "??????????????????????????????",
                 _global_router_prompt(payload),
             )
+            result = response["result"]
             result = _normalize_global_router_result(result)
-            response = {"actual_cost": 0.0, "retry_count": 0}
         else:
             result = _export_markdown(payload)
             response = {"actual_cost": 0.0, "retry_count": 0}  # export不调用模型
 
         # 新增：计算meta
-        estimated_duration = _estimate_duration(stage)
+        estimated_duration = response.get("estimated_duration", _estimate_duration(stage))
         provider_config = MODEL_PROVIDERS.get(provider, {})
         model_name = provider_config.get("model", "default")
-        estimated_cost = _calculate_cost(model_name)
+        estimated_cost = response.get("estimated_cost", _calculate_cost(model_name))
         actual_cost = response.get("actual_cost", 0.0)
         retry_count = response.get("retry_count", 0)
         primary_model = response.get("primary_model", model_name)
@@ -294,9 +294,23 @@ def run_agent_stage():
         fallback_reason = response.get("fallback_reason", "")
         fallback_from = response.get("fallback_from", "")
         fallback_to = response.get("fallback_to", "")
+        estimated_tokens = int(response.get("estimated_tokens", 0) or 0)
+        cost_type = response.get("cost_type", "text" if estimated_tokens else "")
+        prompt_tokens = int(response.get("prompt_tokens", 0) or 0)
+        completion_tokens = int(response.get("completion_tokens", 0) or 0)
+        cache_hit_tokens = int(response.get("cache_hit_tokens", 0) or 0)
+        cache_miss_tokens = int(response.get("cache_miss_tokens", 0) or 0)
+        cost_per_token = float(response.get("cost_per_token", 0.0) or 0.0)
+        cost_per_1k_tokens = float(response.get("cost_per_1k_tokens", cost_per_token * 1000) or 0.0)
+        input_cost = float(response.get("input_cost", 0.0) or 0.0)
+        output_cost = float(response.get("output_cost", 0.0) or 0.0)
+        input_price_per_1m_tokens = float(response.get("input_price_per_1m_tokens", 0.0) or 0.0)
+        input_cache_hit_price_per_1m_tokens = float(response.get("input_cache_hit_price_per_1m_tokens", 0.0) or 0.0)
+        output_price_per_1m_tokens = float(response.get("output_price_per_1m_tokens", 0.0) or 0.0)
 
         meta = {
             "stage": stage,
+            "cost_type": cost_type,
             "estimated_duration": estimated_duration,
             "estimated_cost": estimated_cost,
             "actual_cost": actual_cost,
@@ -307,6 +321,25 @@ def run_agent_stage():
             "fallback_reason": fallback_reason,
             "fallback_from": fallback_from,
             "fallback_to": fallback_to,
+            "estimated_tokens": estimated_tokens,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cache_hit_tokens": cache_hit_tokens,
+            "cache_miss_tokens": cache_miss_tokens,
+            "cost_per_token": cost_per_token,
+            "cost_per_1k_tokens": cost_per_1k_tokens,
+            "input_cost": input_cost,
+            "output_cost": output_cost,
+            "input_price_per_1m_tokens": input_price_per_1m_tokens,
+            "input_cache_hit_price_per_1m_tokens": input_cache_hit_price_per_1m_tokens,
+            "output_price_per_1m_tokens": output_price_per_1m_tokens,
+            "image_count": int(response.get("image_count", 0) or 0),
+            "image_size": response.get("image_size", ""),
+            "image_price_per_task": float(response.get("image_price_per_task", 0.0) or 0.0),
+            "video_duration": int(response.get("video_duration", 0) or 0),
+            "video_size": response.get("video_size", ""),
+            "video_price_per_second": float(response.get("video_price_per_second", 0.0) or 0.0),
+            "video_with_reference": bool(response.get("video_with_reference", False)),
         }
 
         return jsonify({"ok": True, "stage": stage, "provider": provider, "result": result, "meta": meta})

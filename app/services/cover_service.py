@@ -13,6 +13,7 @@ from app.config import (
     QINIU_IMAGE_TASK_PATH_TEMPLATE,
     QINIU_KODO_BUCKET,
     QINIU_KODO_PUBLIC_DOMAIN,
+    _get_image_price_per_task,
 )
 from app.services.llm_service import _build_qiniu_headers, _request_no_proxy, _resolve_url
 from app.services.video_service import _upload_image_to_qiniu_kodo
@@ -68,6 +69,25 @@ def _normalize_image_task_status(raw_status: Any) -> str:
     return status or "unknown"
 
 
+def _build_cover_image_cost_meta(size: str) -> Dict[str, Any]:
+    price = _get_image_price_per_task(QINIU_IMAGE_MODEL)
+    return {
+        "stage": "cover_image_generate",
+        "cost_type": "image",
+        "primary_model": QINIU_IMAGE_MODEL,
+        "final_model": QINIU_IMAGE_MODEL,
+        "estimated_duration": 0,
+        "estimated_cost": price,
+        "actual_cost": price,
+        "image_count": 1,
+        "image_size": str(size or "").strip(),
+        "image_price_per_task": price,
+        "retry_count": 0,
+        "fallback_triggered": False,
+        "fallback_reason": "",
+    }
+
+
 def _create_cover_image_task(payload: Dict[str, Any]) -> Dict[str, Any]:
     prompt = str(payload.get("image_prompt", "") or "").strip()
     if not prompt:
@@ -96,6 +116,7 @@ def _create_cover_image_task(payload: Dict[str, Any]) -> Dict[str, Any]:
             "model": QINIU_IMAGE_MODEL,
             "size": body["size"],
             "prompt": prompt,
+            "meta": _build_cover_image_cost_meta(str(body["size"])),
             "raw": result,
         }
 
@@ -109,6 +130,7 @@ def _create_cover_image_task(payload: Dict[str, Any]) -> Dict[str, Any]:
         "model": QINIU_IMAGE_MODEL,
         "size": body["size"],
         "prompt": prompt,
+        "meta": _build_cover_image_cost_meta(str(body["size"])),
         "raw": result,
     }
 

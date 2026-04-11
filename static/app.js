@@ -35,6 +35,30 @@ const EMPTY_STATE = {
     topic_tags: [],
     updated_at: '',
   },
+  cover_lab: {
+    current_title: '',
+    style_preference: '',
+    focus_point: '',
+    summary: '',
+    main_title: '',
+    subtitle: '',
+    hook_lines: [],
+    visual_direction: '',
+    layout_direction: '',
+    color_palette: '',
+    image_prompt: '',
+    generated_image_url: '',
+    image_model: '',
+    image_size: '',
+    image_task_id: '',
+    image_task_status: '',
+    image_status_message: '',
+    updated_at: '',
+  },
+  task_meta: null,
+  task_meta_expanded: false,
+  cost_records: [],
+  cost_panel_expanded: false,
   workshop: null,
   storyboard: null,
   video_lab: null,
@@ -202,6 +226,137 @@ function normalizeTitleLab(titleLab) {
     topic_tags: normalizeStringList(parsed.topic_tags),
     updated_at: toText(parsed.updated_at) || base.updated_at,
   };
+}
+
+function normalizeCoverLab(coverLab) {
+  const base = EMPTY_STATE.cover_lab;
+  const parsed = (coverLab && typeof coverLab === 'object') ? coverLab : {};
+  return {
+    current_title: toText(parsed.current_title) || base.current_title,
+    style_preference: toText(parsed.style_preference) || base.style_preference,
+    focus_point: toText(parsed.focus_point) || base.focus_point,
+    summary: toText(parsed.summary) || base.summary,
+    main_title: toText(parsed.main_title) || base.main_title,
+    subtitle: toText(parsed.subtitle) || base.subtitle,
+    hook_lines: normalizeStringList(parsed.hook_lines),
+    visual_direction: toText(parsed.visual_direction) || base.visual_direction,
+    layout_direction: toText(parsed.layout_direction) || base.layout_direction,
+    color_palette: toText(parsed.color_palette) || base.color_palette,
+    image_prompt: toText(parsed.image_prompt) || base.image_prompt,
+    generated_image_url: toText(parsed.generated_image_url) || base.generated_image_url,
+    image_model: toText(parsed.image_model) || base.image_model,
+    image_size: toText(parsed.image_size) || base.image_size,
+    image_task_id: toText(parsed.image_task_id) || base.image_task_id,
+    image_task_status: toText(parsed.image_task_status) || base.image_task_status,
+    image_status_message: toText(parsed.image_status_message) || base.image_status_message,
+    updated_at: toText(parsed.updated_at) || base.updated_at,
+  };
+}
+
+function normalizeTaskMeta(meta) {
+  if (!meta || typeof meta !== 'object') {
+    return null;
+  }
+  const tokens = toInt(meta.estimated_tokens, 0, 0);
+  const rawCostPerToken = Number(meta.cost_per_token || 0);
+  const hasCostPer1k = meta.cost_per_1k_tokens !== undefined && meta.cost_per_1k_tokens !== null;
+  const costPer1kTokens = Number(hasCostPer1k ? meta.cost_per_1k_tokens : (rawCostPerToken >= 0.0001 ? rawCostPerToken : rawCostPerToken * 1000));
+  const legacyUnitBug = !hasCostPer1k && rawCostPerToken >= 0.0001 && tokens > 0;
+  const promptTokens = toInt(meta.prompt_tokens, 0, 0);
+  const completionTokens = toInt(meta.completion_tokens, 0, 0);
+  const cacheHitTokens = toInt(meta.cache_hit_tokens, 0, 0);
+  const cacheMissTokens = toInt(meta.cache_miss_tokens, 0, 0);
+  return {
+    stage: toText(meta.stage),
+    cost_type: toText(meta.cost_type),
+    estimated_duration: meta.estimated_duration,
+    estimated_cost: legacyUnitBug ? costPer1kTokens : meta.estimated_cost,
+    actual_cost: legacyUnitBug ? (costPer1kTokens * tokens / 1000) : meta.actual_cost,
+    retry_count: toInt(meta.retry_count, 0, 0),
+    primary_model: toText(meta.primary_model),
+    final_model: toText(meta.final_model),
+    fallback_triggered: Boolean(meta.fallback_triggered),
+    fallback_reason: toText(meta.fallback_reason),
+    fallback_from: toText(meta.fallback_from),
+    fallback_to: toText(meta.fallback_to),
+    estimated_tokens: tokens,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    cache_hit_tokens: cacheHitTokens,
+    cache_miss_tokens: cacheMissTokens,
+    cost_per_token: costPer1kTokens / 1000,
+    cost_per_1k_tokens: costPer1kTokens,
+    input_cost: Number(meta.input_cost || 0),
+    output_cost: Number(meta.output_cost || 0),
+    input_price_per_1m_tokens: Number(meta.input_price_per_1m_tokens || 0),
+    input_cache_hit_price_per_1m_tokens: Number(meta.input_cache_hit_price_per_1m_tokens || 0),
+    output_price_per_1m_tokens: Number(meta.output_price_per_1m_tokens || 0),
+    video_duration: toInt(meta.video_duration, 0, 0),
+    video_size: toText(meta.video_size),
+    video_price_per_second: Number(meta.video_price_per_second || 0),
+    video_with_reference: Boolean(meta.video_with_reference),
+    image_count: toInt(meta.image_count, 0, 0),
+    image_size: toText(meta.image_size),
+    image_price_per_task: Number(meta.image_price_per_task || 0),
+  };
+}
+
+function normalizeCostRecord(item, index = 0) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+  const tokens = toInt(item.estimated_tokens, 0, 0);
+  const rawCostPerToken = Number(item.cost_per_token || 0);
+  const hasCostPer1k = item.cost_per_1k_tokens !== undefined && item.cost_per_1k_tokens !== null;
+  const costPer1kTokens = Number(hasCostPer1k ? item.cost_per_1k_tokens : (rawCostPerToken >= 0.0001 ? rawCostPerToken : rawCostPerToken * 1000));
+  const legacyUnitBug = !hasCostPer1k && rawCostPerToken >= 0.0001 && tokens > 0;
+  const promptTokens = toInt(item.prompt_tokens, 0, 0);
+  const completionTokens = toInt(item.completion_tokens, 0, 0);
+  const cacheHitTokens = toInt(item.cache_hit_tokens, 0, 0);
+  const cacheMissTokens = toInt(item.cache_miss_tokens, 0, 0);
+  return {
+    id: toText(item.id) || `cost_${index + 1}`,
+    time: toText(item.time),
+    stage: toText(item.stage),
+    cost_type: toText(item.cost_type),
+    primary_model: toText(item.primary_model),
+    final_model: toText(item.final_model),
+    estimated_cost: legacyUnitBug ? costPer1kTokens : Number(item.estimated_cost || 0),
+    actual_cost: legacyUnitBug ? (costPer1kTokens * tokens / 1000) : Number(item.actual_cost || 0),
+    estimated_duration: item.estimated_duration,
+    estimated_tokens: tokens,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    cache_hit_tokens: cacheHitTokens,
+    cache_miss_tokens: cacheMissTokens,
+    cost_per_token: costPer1kTokens / 1000,
+    cost_per_1k_tokens: costPer1kTokens,
+    input_cost: Number(item.input_cost || 0),
+    output_cost: Number(item.output_cost || 0),
+    input_price_per_1m_tokens: Number(item.input_price_per_1m_tokens || 0),
+    input_cache_hit_price_per_1m_tokens: Number(item.input_cache_hit_price_per_1m_tokens || 0),
+    output_price_per_1m_tokens: Number(item.output_price_per_1m_tokens || 0),
+    video_duration: toInt(item.video_duration, 0, 0),
+    video_size: toText(item.video_size),
+    video_price_per_second: Number(item.video_price_per_second || 0),
+    video_with_reference: Boolean(item.video_with_reference),
+    image_count: toInt(item.image_count, 0, 0),
+    image_size: toText(item.image_size),
+    image_price_per_task: Number(item.image_price_per_task || 0),
+    retry_count: toInt(item.retry_count, 0, 0),
+    fallback_triggered: Boolean(item.fallback_triggered),
+    fallback_reason: toText(item.fallback_reason),
+  };
+}
+
+function normalizeCostRecords(records) {
+  if (!Array.isArray(records)) {
+    return [];
+  }
+  return records
+    .slice(-80)
+    .map((item, index) => normalizeCostRecord(item, index))
+    .filter(Boolean);
 }
 
 function normalizeReviewLab(reviewLab) {
@@ -604,6 +759,11 @@ function normalizeState(input) {
     story_card: normalizeStoryCard(parsed.story_card),
     review_lab: normalizeReviewLab(parsed.review_lab),
     title_lab: normalizeTitleLab(parsed.title_lab),
+    cover_lab: normalizeCoverLab(parsed.cover_lab),
+    task_meta: normalizeTaskMeta(parsed.task_meta),
+    task_meta_expanded: Boolean(parsed.task_meta_expanded),
+    cost_records: normalizeCostRecords(parsed.cost_records),
+    cost_panel_expanded: Boolean(parsed.cost_panel_expanded),
     workshop: normalizeWorkshopData(parsed.workshop),
     storyboard: normalizeStoryboardData(parsed.storyboard),
     video_lab: normalizeVideoState(parsed.video_lab),
@@ -616,6 +776,11 @@ function applyState(newState) {
   state.story_card = normalized.story_card;
   state.review_lab = normalized.review_lab;
   state.title_lab = normalized.title_lab;
+  state.cover_lab = normalized.cover_lab;
+  state.task_meta = normalized.task_meta;
+  state.task_meta_expanded = normalized.task_meta_expanded;
+  state.cost_records = normalized.cost_records;
+  state.cost_panel_expanded = normalized.cost_panel_expanded;
   state.workshop = normalized.workshop;
   state.storyboard = normalized.storyboard;
   state.video_lab = normalized.video_lab;
@@ -2161,6 +2326,7 @@ async function runStage(stage, payload, provider = null) {
         detail: data?.detail || '',
       };
     }
+    recordCostMeta(data?.meta);
     return data;
   } catch (err) {
     if (err?.name === 'AbortError') {
@@ -2947,6 +3113,7 @@ function bindWorkshopActions() {
       saveState();
 
       updateOutput('workshop-output', formatWorkshopResult(state.workshop));
+      renderTaskMeta(data.meta);
       refreshVisualEditors();
       renderReviewLab('正在根据最新剧本结构评分...');
       await runStoryReviewFlow('workshop', { withRewrite: true });
@@ -2972,6 +3139,7 @@ function bindWorkshopActions() {
       saveState();
 
       updateOutput('storyboard-output', formatStoryboardResult(state.storyboard));
+      renderTaskMeta(data.meta);
       renderReviewLab('正在根据最新分镜评分...');
       await runStoryReviewFlow('storyboard', { withRewrite: true });
     });
@@ -3360,12 +3528,191 @@ function formatTitlePackagingResult(titleLab) {
   return lines.join('\n');
 }
 
+function formatCoverPackagingResult(coverLab) {
+  const data = normalizeCoverLab(coverLab);
+  const lines = [];
+  lines.push('【封面策划总览】');
+  lines.push(data.summary || '-');
+  lines.push('');
+  lines.push(`【当前标题】${data.current_title || '-'}`);
+  lines.push(`【风格偏好】${data.style_preference || '-'}`);
+  lines.push(`【主打点】${data.focus_point || '-'}`);
+  lines.push(`【封面主标题】${data.main_title || '-'}`);
+  lines.push(`【封面副标题】${data.subtitle || '-'}`);
+  lines.push('');
+  lines.push('【封面短句】');
+  if (data.hook_lines.length) {
+    data.hook_lines.forEach((item, index) => lines.push(`${index + 1}. ${item}`));
+  } else {
+    lines.push('-');
+  }
+  lines.push('');
+  lines.push(`【视觉方向】${data.visual_direction || '-'}`);
+  lines.push(`【排版建议】${data.layout_direction || '-'}`);
+  lines.push(`【色彩建议】${data.color_palette || '-'}`);
+  lines.push('');
+  lines.push('【文生图提示词】');
+  lines.push(data.image_prompt || '-');
+  if (data.image_task_id || data.image_task_status || data.image_status_message) {
+    lines.push('');
+    lines.push(`任务状态：${data.image_task_status || '-'}`);
+    lines.push(`任务ID：${data.image_task_id || '-'}`);
+    lines.push(`状态说明：${data.image_status_message || '-'}`);
+  }
+  if (data.generated_image_url) {
+    lines.push('');
+    lines.push(`【图片模型】${data.image_model || '-'}`);
+    lines.push(`【图片尺寸】${data.image_size || '-'}`);
+    lines.push(`【已生成封面】${data.generated_image_url}`);
+  }
+  return lines.join('\n');
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function setCoverImageRunStatus(text, mode = 'idle') {
+  const target = bind('cover-image-run-status');
+  if (!target) return;
+  target.textContent = text || '未开始生成封面';
+  target.classList.toggle('cover-image-status-running', mode === 'running');
+  target.classList.toggle('cover-image-status-error', mode === 'error');
+}
+
+function setCoverImageButtonBusy(isBusy, text = '生成中...') {
+  const button = bind('btn-cover-image');
+  if (!button) return;
+  if (!button.dataset.idleText) {
+    button.dataset.idleText = button.textContent || '一键生成封面';
+  }
+  button.disabled = Boolean(isBusy);
+  button.classList.toggle('is-loading', Boolean(isBusy));
+  button.textContent = isBusy ? text : button.dataset.idleText;
+}
+
+function openCoverImageModal(url, statusText = '') {
+  const modal = bind('cover-image-modal');
+  const image = bind('cover-image-modal-preview');
+  const status = bind('cover-image-modal-status');
+  if (!modal || !image) return;
+  if (!url) {
+    setCoverImageRunStatus('还没有可预览的封面', 'error');
+    return;
+  }
+  image.src = url;
+  if (status) {
+    status.textContent = statusText || state.cover_lab?.image_status_message || '封面已生成';
+  }
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeCoverImageModal() {
+  const modal = bind('cover-image-modal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function renderCoverImagePreview(url) {
+  const wrap = bind('cover-image-preview-wrap');
+  const image = bind('cover-image-preview');
+  const previewButton = bind('btn-cover-image-preview');
+  if (!wrap || !image) return;
+  if (!url) {
+    wrap.style.display = 'none';
+    image.removeAttribute('src');
+    if (previewButton) previewButton.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  image.src = url;
+  if (previewButton) previewButton.style.display = 'inline-flex';
+}
+
+async function syncCoverImageToProject(imageUrl) {
+  if (!imageUrl || !currentProjectId) return;
+  currentProjectMeta = currentProjectMeta || {};
+  currentProjectMeta.cover_image = imageUrl;
+  await fetchJson(`/api/projects/${currentProjectId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cover_image: imageUrl,
+      last_provider: currentProvider,
+    }),
+  });
+  await loadProjects();
+  renderProjectMeta();
+}
+
+async function pollCoverImageTask(taskId) {
+  for (let attempt = 1; attempt <= 24; attempt += 1) {
+    if (attempt > 1) await wait(5000);
+    setCoverImageRunStatus(`正在查询生成结果（第 ${attempt} 次）...`, 'running');
+    const data = await runStage('cover_image_query', { task_id: taskId });
+    if (!data.ok) return data;
+
+    const result = data.result || {};
+    state.cover_lab = normalizeCoverLab({
+      ...state.cover_lab,
+      image_task_id: toText(result.task_id) || taskId,
+      image_task_status: toText(result.task_status),
+      image_status_message: toText(result.status_message),
+      image_model: toText(result.model) || state.cover_lab?.image_model || '',
+      image_size: toText(result.size) || state.cover_lab?.image_size || '',
+      generated_image_url: toText(result.image_url) || state.cover_lab?.generated_image_url || '',
+      updated_at: new Date().toISOString(),
+    });
+    saveState();
+    updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
+
+    if (state.cover_lab.generated_image_url) {
+      return { ok: true, result };
+    }
+    if (state.cover_lab.image_task_status === 'failed') {
+      return { ok: false, error: state.cover_lab.image_status_message || '封面生成失败', detail: '' };
+    }
+  }
+  return { ok: false, error: '封面生成超时，请稍后再试', detail: '' };
+}
+
+function openContentPlayer(targetId, title) {
+  const modal = bind('content-player-modal');
+  const text = bind('content-player-text');
+  const heading = bind('content-player-title');
+  const status = bind('content-player-status');
+  const source = bind(targetId);
+  if (!modal || !text || !source) return;
+
+  const content = source.textContent || source.value || '';
+  text.textContent = content || '暂无可预览内容，请先生成对应内容。';
+  if (heading) heading.textContent = title || '内容预览播放';
+  if (status) status.textContent = content ? '已载入内容' : '暂无内容';
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeContentPlayer() {
+  const modal = bind('content-player-modal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
 function buildExportPayload() {
   return {
     project: currentProjectMeta ? { ...currentProjectMeta } : null,
     current_provider: currentProvider,
     exported_at: new Date().toISOString(),
     story_card: normalizeStoryCard(state.story_card),
+    cover_lab: normalizeCoverLab({
+      ...state.cover_lab,
+      current_title: bind('current-title-input')?.value || state.cover_lab?.current_title || '',
+      style_preference: bind('cover-style-input')?.value || state.cover_lab?.style_preference || '',
+      focus_point: bind('cover-focus-input')?.value || state.cover_lab?.focus_point || '',
+    }),
     title_lab: normalizeTitleLab({
       ...state.title_lab,
       current_title: bind('current-title-input')?.value || state.title_lab?.current_title || '',
@@ -3393,11 +3740,36 @@ function restoreOutputsOnPageLoad() {
   if (bind('current-title-input')) {
     bind('current-title-input').value = state.title_lab?.current_title || '';
   }
+  if (bind('cover-style-input')) {
+    bind('cover-style-input').value = state.cover_lab?.style_preference || '';
+  }
+  if (bind('cover-focus-input')) {
+    bind('cover-focus-input').value = state.cover_lab?.focus_point || '';
+  }
   if (bind('title-pack-output') && state.title_lab && state.title_lab.title_suggestions?.length) {
     updateOutput('title-pack-output', formatTitlePackagingResult(state.title_lab));
   } else if (bind('title-pack-output')) {
     updateOutput('title-pack-output', '');
   }
+  if (bind('cover-pack-output') && state.cover_lab && (state.cover_lab.summary || state.cover_lab.image_prompt || state.cover_lab.generated_image_url)) {
+    updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
+  } else if (bind('cover-pack-output')) {
+    updateOutput('cover-pack-output', '');
+  }
+  renderCoverImagePreview(state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image || '');
+  if (bind('cover-image-run-status')) {
+    if (state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image) {
+      setCoverImageRunStatus('封面已生成，可点击查看封面');
+    } else if (state.cover_lab?.image_task_id) {
+      setCoverImageRunStatus(`最近任务状态：${state.cover_lab.image_task_status || '未知'}`);
+    } else {
+      setCoverImageRunStatus('未开始生成封面');
+    }
+  }
+  if (state.task_meta) {
+    renderTaskMeta(state.task_meta, { persist: false });
+  }
+  renderCostWidget();
 
   const video = getVideoState();
   if (bind('video-script-output') && video.script) {
@@ -3650,7 +4022,55 @@ function bindExportActions() {
         ...state.title_lab,
         current_title: currentTitleInput.value,
       });
+      state.cover_lab = normalizeCoverLab({
+        ...state.cover_lab,
+        current_title: currentTitleInput.value,
+      });
       saveState();
+    });
+  }
+
+  const coverStyleInput = bind('cover-style-input');
+  if (coverStyleInput) {
+    coverStyleInput.addEventListener('input', () => {
+      state.cover_lab = normalizeCoverLab({
+        ...state.cover_lab,
+        style_preference: coverStyleInput.value,
+      });
+      saveState();
+    });
+  }
+
+  const coverFocusInput = bind('cover-focus-input');
+  if (coverFocusInput) {
+    coverFocusInput.addEventListener('input', () => {
+      state.cover_lab = normalizeCoverLab({
+        ...state.cover_lab,
+        focus_point: coverFocusInput.value,
+      });
+      saveState();
+    });
+  }
+
+  const coverPreviewButton = bind('btn-cover-image-preview');
+  if (coverPreviewButton) {
+    coverPreviewButton.addEventListener('click', () => {
+      const imageUrl = state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image || '';
+      openCoverImageModal(imageUrl, state.cover_lab?.image_status_message || '封面已生成');
+    });
+  }
+
+  const coverModalCloseButton = bind('btn-cover-image-modal-close');
+  if (coverModalCloseButton) {
+    coverModalCloseButton.addEventListener('click', closeCoverImageModal);
+  }
+
+  const coverModal = bind('cover-image-modal');
+  if (coverModal) {
+    coverModal.addEventListener('click', (event) => {
+      if (event.target === coverModal) {
+        closeCoverImageModal();
+      }
     });
   }
 
@@ -3683,6 +4103,167 @@ function bindExportActions() {
       });
       saveState();
       updateOutput('title-pack-output', formatTitlePackagingResult(state.title_lab));
+    });
+  }
+
+  const btnCoverPack = bind('btn-cover-packaging');
+  if (btnCoverPack) {
+    btnCoverPack.addEventListener('click', async () => {
+      if (!hasDataForExport()) {
+        updateOutput('cover-pack-output', '暂无可分析内容，请先生成故事、剧本或分镜。');
+        return;
+      }
+
+      updateOutput('cover-pack-output', '正在生成短剧封面策划...');
+      setCoverImageRunStatus('正在生成封面策划...', 'running');
+      const recommendedTitle =
+        (state.title_lab?.title_suggestions || []).find((item) => item.id === state.title_lab?.recommended_title_id)?.title
+        || '';
+      const payload = {
+        project: currentProjectMeta ? { ...currentProjectMeta } : null,
+        current_title: bind('current-title-input')?.value?.trim() || recommendedTitle || state.cover_lab?.current_title || '',
+        style_preference: bind('cover-style-input')?.value?.trim() || '',
+        focus_point: bind('cover-focus-input')?.value?.trim() || '',
+        story_card: normalizeStoryCard(state.story_card),
+        workshop: normalizeWorkshopData(state.workshop),
+        storyboard: normalizeStoryboardData(state.storyboard),
+      };
+      const data = await runStage('cover_packaging', payload);
+      if (!data.ok) {
+        updateOutput('cover-pack-output', `错误: ${data.error}\n${data.detail || ''}`);
+        setCoverImageRunStatus(`封面策划失败：${data.error}`, 'error');
+        return;
+      }
+
+      state.cover_lab = normalizeCoverLab({
+        ...data.result,
+        current_title: payload.current_title,
+        style_preference: payload.style_preference,
+        focus_point: payload.focus_point,
+        generated_image_url: state.cover_lab?.generated_image_url || '',
+        image_model: state.cover_lab?.image_model || '',
+        image_size: state.cover_lab?.image_size || '',
+        image_task_id: state.cover_lab?.image_task_id || '',
+        image_task_status: state.cover_lab?.image_task_status || '',
+        image_status_message: state.cover_lab?.image_status_message || '',
+        updated_at: new Date().toISOString(),
+      });
+      saveState();
+      updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
+      setCoverImageRunStatus('封面策划已生成，可以继续一键生成封面');
+      renderCoverImagePreview(state.cover_lab.generated_image_url || currentProjectMeta?.cover_image || '');
+    });
+  }
+
+  const btnCoverImage = bind('btn-cover-image');
+  if (btnCoverImage) {
+    btnCoverImage.addEventListener('click', async () => {
+      if (!hasDataForExport()) {
+        updateOutput('cover-pack-output', '暂无可分析内容，请先生成故事、剧本或分镜。');
+        return;
+      }
+
+      setCoverImageButtonBusy(true, '生成中...');
+      setCoverImageRunStatus('正在准备封面生成任务...', 'running');
+      try {
+        let coverLab = normalizeCoverLab(state.cover_lab);
+        if (!coverLab.image_prompt) {
+          setCoverImageRunStatus('正在先生成封面策划...', 'running');
+          updateOutput('cover-pack-output', '正在先生成封面策划...');
+          const recommendedTitle =
+            (state.title_lab?.title_suggestions || []).find((item) => item.id === state.title_lab?.recommended_title_id)?.title
+            || '';
+          const packagingPayload = {
+            project: currentProjectMeta ? { ...currentProjectMeta } : null,
+            current_title: bind('current-title-input')?.value?.trim() || recommendedTitle || state.cover_lab?.current_title || '',
+            style_preference: bind('cover-style-input')?.value?.trim() || '',
+            focus_point: bind('cover-focus-input')?.value?.trim() || '',
+            story_card: normalizeStoryCard(state.story_card),
+            workshop: normalizeWorkshopData(state.workshop),
+            storyboard: normalizeStoryboardData(state.storyboard),
+          };
+          const packagingData = await runStage('cover_packaging', packagingPayload);
+          if (!packagingData.ok) {
+            updateOutput('cover-pack-output', `错误: ${packagingData.error}\n${packagingData.detail || ''}`);
+            setCoverImageRunStatus(`封面策划失败：${packagingData.error}`, 'error');
+            return;
+          }
+          state.cover_lab = normalizeCoverLab({
+            ...packagingData.result,
+            current_title: packagingPayload.current_title,
+            style_preference: packagingPayload.style_preference,
+            focus_point: packagingPayload.focus_point,
+            generated_image_url: state.cover_lab?.generated_image_url || '',
+            image_model: state.cover_lab?.image_model || '',
+            image_size: state.cover_lab?.image_size || '',
+            updated_at: new Date().toISOString(),
+          });
+          saveState();
+          coverLab = normalizeCoverLab(state.cover_lab);
+          updateOutput('cover-pack-output', formatCoverPackagingResult(coverLab));
+        }
+
+        updateOutput('cover-pack-output', `${formatCoverPackagingResult(coverLab)}\n\n正在提交封面生成任务...`);
+        setCoverImageRunStatus('正在提交封面生成任务...', 'running');
+        const imageData = await runStage('cover_image_generate', { image_prompt: coverLab.image_prompt });
+        if (!imageData.ok) {
+          updateOutput('cover-pack-output', `错误: ${imageData.error}\n${imageData.detail || ''}`);
+          setCoverImageRunStatus(`生成失败：${imageData.error}`, 'error');
+          return;
+        }
+
+        let imageUrl = toText(imageData.result?.image_url);
+        const imageTaskId = toText(imageData.result?.task_id);
+        if (imageTaskId) {
+          state.cover_lab = normalizeCoverLab({
+            ...state.cover_lab,
+            image_model: toText(imageData.result?.model) || state.cover_lab?.image_model || '',
+            image_size: toText(imageData.result?.size) || state.cover_lab?.image_size || '',
+            image_task_id: imageTaskId,
+            image_task_status: toText(imageData.result?.task_status) || (imageUrl ? 'succeed' : 'submitted'),
+            image_status_message: '',
+            updated_at: new Date().toISOString(),
+          });
+          saveState();
+          setCoverImageRunStatus(`任务已创建：${imageTaskId}，正在生成...`, 'running');
+        }
+        if (!imageUrl && imageTaskId) {
+          updateOutput('cover-pack-output', `${formatCoverPackagingResult(state.cover_lab)}\n\n正在等待封面生成完成...`);
+          const pollData = await pollCoverImageTask(imageTaskId);
+          if (!pollData.ok) {
+            updateOutput('cover-pack-output', `错误: ${pollData.error}\n${pollData.detail || ''}`);
+            setCoverImageRunStatus(`生成失败：${pollData.error}`, 'error');
+            return;
+          }
+          imageUrl = toText(pollData.result?.image_url) || state.cover_lab.generated_image_url;
+        }
+        if (!imageUrl) {
+          updateOutput('cover-pack-output', '错误: 图片任务已完成，但没有返回可用图片地址');
+          setCoverImageRunStatus('生成失败：没有返回可用图片地址', 'error');
+          return;
+        }
+
+        state.cover_lab = normalizeCoverLab({
+          ...state.cover_lab,
+          generated_image_url: imageUrl,
+          image_model: toText(imageData.result?.model) || state.cover_lab?.image_model || '',
+          image_size: toText(imageData.result?.size) || state.cover_lab?.image_size || '',
+          image_task_status: 'succeed',
+          image_status_message: '封面已生成并同步到当前项目',
+          updated_at: new Date().toISOString(),
+        });
+        saveState();
+        await syncCoverImageToProject(imageUrl);
+        updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
+        renderCoverImagePreview(imageUrl);
+        openCoverImageModal(imageUrl, '封面生成成功，已同步到当前项目');
+        setCoverImageRunStatus('封面生成成功，已同步到当前项目');
+      } catch (err) {
+        updateOutput('cover-pack-output', `错误: ${err.message}`);
+        setCoverImageRunStatus(`生成失败：${err.message}`, 'error');
+      } finally {
+        setCoverImageButtonBusy(false);
+      }
     });
   }
 
@@ -4182,6 +4763,7 @@ function bindVideoActions() {
       }
 
       const output = data.result?.output || data.result || {};
+      recordCostMeta(data.result?.meta);
       const video = resetVideoRunState({ preservePrompt: true, preserveScript: true, preserveSegments: false });
       video.prompt = payload.prompt;
       video.image_url = payload.image_url;
@@ -4267,6 +4849,7 @@ function bindVideoActions() {
           total_duration: data.result?.total_duration || totalDuration,
           filename_prefix: bind('video-filename-prefix')?.value.trim() || '',
         });
+        recordCostMeta(data.result?.meta);
         const video = resetVideoRunState({ preservePrompt: true, preserveScript: true, preserveSegments: false });
         video.prompt = normalizedVideo.prompt;
         video.image_url = payload.image_url;
@@ -4333,7 +4916,7 @@ async function initProjectContext() {
   }
 }
 
-function renderTaskMeta(meta) {
+function renderTaskMetaLegacy(meta) {
   const panel = bind('task-meta-panel');
   const content = bind('task-meta-content');
   if (!panel || !content || !meta) {
@@ -4370,6 +4953,319 @@ function renderTaskMeta(meta) {
   panel.style.display = 'block';
 }
 
+function setTaskMetaExpanded(expanded, { persist = true } = {}) {
+  state.task_meta_expanded = Boolean(expanded);
+  const content = bind('task-meta-content');
+  const button = bind('btn-task-meta-toggle');
+  if (content) {
+    content.style.display = state.task_meta_expanded ? 'grid' : 'none';
+  }
+  if (button) {
+    button.textContent = state.task_meta_expanded ? '收起' : '成本预估';
+  }
+  if (persist) {
+    saveState();
+  }
+}
+
+function renderTaskMeta(meta, opts = {}) {
+  const panel = bind('task-meta-panel');
+  const content = bind('task-meta-content');
+  if (!panel || !content || !meta) {
+    return;
+  }
+  const normalizedMeta = normalizeTaskMeta(meta);
+  if (!normalizedMeta) {
+    return;
+  }
+  if (opts.persist !== false) {
+    state.task_meta = normalizedMeta;
+  }
+
+  const formatCost = (cost) => (typeof cost === 'number' ? `¥${cost.toFixed(4)}` : (cost || '-'));
+  const formatDuration = (duration) => (typeof duration === 'number' ? `${duration.toFixed(1)} 秒` : (duration || '-'));
+  const items = [
+    { label: '预估成本', value: formatCost(normalizedMeta.estimated_cost) },
+    { label: '实际成本', value: formatCost(normalizedMeta.actual_cost) },
+    { label: '重试次数', value: normalizedMeta.retry_count || 0 },
+    { label: '主模型', value: normalizedMeta.primary_model || '-' },
+    { label: '最终模型', value: normalizedMeta.final_model || '-' },
+    { label: '是否降级', value: normalizedMeta.fallback_triggered ? '是' : '否' },
+    { label: '预估时长', value: formatDuration(normalizedMeta.estimated_duration) },
+  ];
+
+  content.innerHTML = items
+    .map((item) => `<div class="meta-item"><span class="meta-label">${item.label}:</span> <span class="meta-value">${item.value}</span></div>`)
+    .join('');
+  panel.style.display = 'block';
+  setTaskMetaExpanded(state.task_meta_expanded, { persist: false });
+  if (opts.persist !== false) {
+    saveState();
+  }
+}
+
+function bindTaskMetaActions() {
+  const button = bind('btn-task-meta-toggle');
+  if (!button) {
+    return;
+  }
+  button.addEventListener('click', () => {
+    setTaskMetaExpanded(!state.task_meta_expanded);
+  });
+}
+
+function costStageLabel(stage) {
+  const labels = {
+    story_engine: '故事引擎',
+    story_review: '评分',
+    story_rewrite: '改稿',
+    title_packaging: '标题包装',
+    cover_packaging: '封面策划',
+    cover_image_generate: '封面生图',
+    video_generate: '视频生成',
+    workshop: '剧本工坊',
+    storyboard: '分镜工厂',
+    command: '智能命令',
+    global_router: '全局路由',
+  };
+  return labels[stage] || stage || '-';
+}
+
+function formatMoney(value) {
+  const num = Number(value || 0);
+  return `¥${num.toFixed(4)}`;
+}
+
+function formatUnitCost(value) {
+  const num = Number(value || 0);
+  if (!num) {
+    return '-';
+  }
+  return `¥${num.toFixed(6)}`;
+}
+
+function formatMillionTokenPrice(value) {
+  const num = Number(value || 0);
+  if (!num) {
+    return '-';
+  }
+  return `¥${num.toFixed(2)}/百万Tokens`;
+}
+
+function formatVideoCostLines(record) {
+  if (record.cost_type !== 'video') {
+    return '';
+  }
+  return `
+          <div>视频规格：${record.video_size || '-'} / ${record.video_with_reference ? '有参考图' : '无参考图'}</div>
+          <div>视频时长：${record.video_duration || record.estimated_duration || '-'} 秒</div>
+          <div>视频单价：${record.video_price_per_second ? `¥${record.video_price_per_second.toFixed(4)}/秒` : '-'}</div>
+  `;
+}
+
+function formatImageCostLines(record) {
+  if (record.cost_type !== 'image') {
+    return '';
+  }
+  return `
+          <div>图片规格：${record.image_size || '-'}</div>
+          <div>图片数量：${record.image_count || '-'}</div>
+          <div>图片单价：${record.image_price_per_task ? `¥${record.image_price_per_task.toFixed(4)}/张` : '-'}</div>
+  `;
+}
+
+function formatTokenCostLines(record) {
+  if (record.cost_type && record.cost_type !== 'text') {
+    return '';
+  }
+  return `
+          <div>Tokens：${record.estimated_tokens || '-'}（输入 ${record.prompt_tokens || '-'} / 输出 ${record.completion_tokens || '-'}）</div>
+          ${record.cache_hit_tokens ? `<div>缓存：命中 ${record.cache_hit_tokens} / 未命中 ${record.cache_miss_tokens || '-'}</div>` : ''}
+          <div>输入价：${formatMillionTokenPrice(record.input_price_per_1m_tokens)} | 输出价：${formatMillionTokenPrice(record.output_price_per_1m_tokens)}</div>
+          ${record.cache_hit_tokens ? `<div>缓存命中输入价：${formatMillionTokenPrice(record.input_cache_hit_price_per_1m_tokens)}</div>` : ''}
+          <div>综合单价：${record.cost_per_1k_tokens ? `${formatUnitCost(record.cost_per_1k_tokens)}/千Tokens` : '-'}</div>
+  `;
+}
+
+function shouldRecordCostMeta(meta) {
+  if (!meta || typeof meta !== 'object') {
+    return false;
+  }
+  return [
+    'story_engine',
+    'story_review',
+    'story_rewrite',
+    'title_packaging',
+    'cover_packaging',
+    'cover_image_generate',
+    'video_generate',
+    'workshop',
+    'storyboard',
+    'command',
+    'global_router',
+  ].includes(toText(meta.stage));
+}
+
+function costRecordAmount(record) {
+  return Number(record.actual_cost || record.estimated_cost || 0);
+}
+
+function getCostTotal() {
+  return normalizeCostRecords(state.cost_records).reduce((sum, record) => sum + costRecordAmount(record), 0);
+}
+
+function recordCostMeta(meta) {
+  if (!shouldRecordCostMeta(meta)) {
+    return;
+  }
+  const normalizedMeta = normalizeTaskMeta(meta);
+  if (!normalizedMeta) {
+    return;
+  }
+
+  const record = normalizeCostRecord({
+    ...normalizedMeta,
+    id: `cost_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    time: new Date().toLocaleString(),
+  });
+  if (!record) {
+    return;
+  }
+
+  state.cost_records = normalizeCostRecords([...(state.cost_records || []), record]);
+  saveState();
+  renderCostWidget();
+}
+
+function clearCostRecords() {
+  const records = normalizeCostRecords(state.cost_records);
+  if (!records.length) {
+    return;
+  }
+  const confirmed = window.confirm('确定清空当前项目的成本记录吗？');
+  if (!confirmed) {
+    return;
+  }
+  state.cost_records = [];
+  saveState();
+  renderCostWidget();
+}
+
+function setCostPanelExpanded(expanded, { persist = true } = {}) {
+  state.cost_panel_expanded = Boolean(expanded);
+  const panel = bind('cost-widget-detail');
+  const toggle = bind('cost-widget-toggle');
+  if (panel) {
+    panel.style.display = state.cost_panel_expanded ? 'block' : 'none';
+  }
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', String(state.cost_panel_expanded));
+  }
+  if (persist) {
+    saveState();
+  }
+}
+
+function renderCostWidget() {
+  const total = bind('cost-widget-total');
+  const list = bind('cost-widget-list');
+  const clearButton = bind('btn-cost-clear');
+  if (!total || !list) {
+    return;
+  }
+
+  const records = normalizeCostRecords(state.cost_records);
+  state.cost_records = records;
+  total.textContent = formatMoney(getCostTotal());
+  if (clearButton) {
+    clearButton.disabled = !records.length;
+  }
+
+  if (!records.length) {
+    list.innerHTML = '<p class="hint">暂无成本记录，生成内容后会自动记录。</p>';
+  } else {
+    list.innerHTML = records
+      .slice()
+      .reverse()
+      .map((record) => `
+        <article class="cost-record">
+          <div class="cost-record-head">
+            <strong>${costStageLabel(record.stage)}</strong>
+            <span>${formatMoney(costRecordAmount(record))}</span>
+          </div>
+          <div>模型：${record.final_model || record.primary_model || '-'}</div>
+          ${formatTokenCostLines(record)}
+          ${formatVideoCostLines(record)}
+          ${formatImageCostLines(record)}
+          <div>预估耗时：${record.estimated_duration ? `${record.estimated_duration} 秒` : '-'}</div>
+          ${record.cost_type === 'video' || record.cost_type === 'image' ? '' : `<div>输入成本：${formatMoney(record.input_cost)} | 输出成本：${formatMoney(record.output_cost)}</div>`}
+          <div>预估：${formatMoney(record.estimated_cost)} | 实际：${formatMoney(record.actual_cost)}</div>
+          <div>重试：${record.retry_count || 0} | 降级：${record.fallback_triggered ? '是' : '否'}</div>
+          ${record.fallback_reason ? `<div>原因：${record.fallback_reason}</div>` : ''}
+          <div class="hint">${record.time || '-'}</div>
+        </article>
+      `)
+      .join('');
+  }
+  setCostPanelExpanded(state.cost_panel_expanded, { persist: false });
+}
+
+function initCostWidget() {
+  if (bind('cost-widget') || !document.body) {
+    renderCostWidget();
+    return;
+  }
+
+  const root = document.createElement('aside');
+  root.id = 'cost-widget';
+  root.className = 'cost-widget';
+  root.innerHTML = `
+    <button id="cost-widget-toggle" class="cost-widget-toggle" type="button" aria-expanded="false">
+      <span>当前成本</span>
+      <strong id="cost-widget-total">¥0.0000</strong>
+    </button>
+    <div id="cost-widget-detail" class="cost-widget-detail" style="display:none;">
+      <div class="cost-widget-detail-head">
+        <strong>成本明细</strong>
+        <div class="cost-widget-actions">
+          <span class="hint">按最近使用倒序</span>
+          <button id="btn-cost-clear" class="secondary cost-widget-clear" type="button">清零</button>
+        </div>
+      </div>
+      <div id="cost-widget-list" class="cost-widget-list"></div>
+    </div>
+  `;
+  document.body.appendChild(root);
+
+  bind('cost-widget-toggle')?.addEventListener('click', () => {
+    setCostPanelExpanded(!state.cost_panel_expanded);
+  });
+  bind('btn-cost-clear')?.addEventListener('click', clearCostRecords);
+  renderCostWidget();
+}
+
+function bindContentPlayerActions() {
+  document.querySelectorAll('[data-open-content-player]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openContentPlayer(button.getAttribute('data-open-content-player'), button.getAttribute('data-player-title'));
+    });
+  });
+
+  const closeButton = bind('btn-content-player-close');
+  if (closeButton) {
+    closeButton.addEventListener('click', closeContentPlayer);
+  }
+
+  const modal = bind('content-player-modal');
+  if (modal) {
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        closeContentPlayer();
+      }
+    });
+  }
+}
+
 function removeLegacyGlobalCommandPanel() {
   const input = bind('command');
   if (!input) {
@@ -4386,6 +5282,9 @@ async function initApp() {
   bindProjectDrawerActions();
   initProjectDrawerDrag();
   bindEditProjectActions();
+  bindTaskMetaActions();
+  bindContentPlayerActions();
+  initCostWidget();
   bindWorkshopActions();
   bindVisualActions();
   bindExportActions();

@@ -60,6 +60,24 @@ def _extract_json(text: str) -> Dict[str, Any]:
         text = re.sub(r"^```(?:json)?", "", text).strip()
         text = re.sub(r"```$", "", text).strip()
 
+    def _loads_with_light_repair(raw_text: str) -> Dict[str, Any]:
+        try:
+            return json.loads(raw_text)
+        except json.JSONDecodeError:
+            pass
+
+        repaired = re.sub(r",(\s*[}\]])", r"\1", raw_text)
+        repaired = re.sub(r'(?<=[}\]"0-9])\s+(?="[^"\n]+"\s*:)', ", ", repaired)
+        repaired = re.sub(r"}\s+{", "}, {", repaired)
+        repaired = repaired.replace("：", ":")
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError as err:
+            start = max(0, err.pos - 120)
+            end = min(len(raw_text), err.pos + 120)
+            snippet = raw_text[start:end].replace("\n", "\\n")
+            raise ValueError(f"Model returned invalid JSON near: {snippet}") from err
+
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -69,7 +87,7 @@ def _extract_json(text: str) -> Dict[str, Any]:
     if not match:
         raise ValueError("Model did not return JSON.")
 
-    return json.loads(match.group(0))
+    return _loads_with_light_repair(match.group(0))
 
 
 def _resolve_url(base_url: str, path_or_url: str) -> str:
@@ -199,6 +217,7 @@ def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt:
         body = {
             "model": model_name,
             "temperature": 0.7,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -209,18 +228,47 @@ def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt:
             data = _request_chat_completion(url, headers, body)
             content = data["choices"][0]["message"]["content"]
             result = _extract_json(content)
-            # 新增：计算actual_cost，估算token数
-            estimated_tokens = len(user_prompt.split()) * 2  # 简单估算
-            from app.config import MODEL_COSTS
-            cost_per_token = MODEL_COSTS.get(model_name, MODEL_COSTS["default"])
-            actual_cost = cost_per_token * estimated_tokens
+            # 新增：计算 actual_cost，优先使用模型返回的 token 用量
+            usage = data.get("usage") if isinstance(data, dict) else {}
+            usage = usage if isinstance(usage, dict) else {}
+            prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+            completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            total_tokens = int(usage.get("total_tokens") or 0)
+            if not prompt_tokens:
+                prompt_tokens = max(1, len(f"{system_prompt}\n{user_prompt}") // 2)
+            if not completion_tokens:
+                completion_tokens = max(0, total_tokens - prompt_tokens) if total_tokens > prompt_tokens else max(1, len(content) // 2)
+            if not total_tokens:
+                total_tokens = prompt_tokens + completion_tokens
+            prompt_details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+            cache_hit_tokens = int(
+                usage.get("prompt_cache_hit_tokens")
+                or usage.get("cache_hit_tokens")
+                or prompt_details.get("cached_tokens")
+                or 0
+            )
+            cache_miss_tokens = int(usage.get("prompt_cache_miss_tokens") or 0)
+            if not cache_miss_tokens and cache_hit_tokens:
+                cache_miss_tokens = max(0, prompt_tokens - cache_hit_tokens)
+
+            from app.config import _get_model_price_per_1m
+            price = _get_model_price_per_1m(model_name)
+            input_cache_hit_price = price.get("input_cache_hit", price["input"])
+            input_cost = (
+                cache_hit_tokens * input_cache_hit_price
+                + (cache_miss_tokens or max(0, prompt_tokens - cache_hit_tokens)) * price["input"]
+            ) / 1_000_000
+            output_cost = completion_tokens * price["output"] / 1_000_000
+            actual_cost = input_cost + output_cost
+            cost_per_token = actual_cost / total_tokens if total_tokens else 0.0
+            cost_per_1k_tokens = cost_per_token * 1000
             final_model = model_name
             fallback_triggered = retry_count > 0
             if fallback_triggered:
                 fallback_reason = "no available channels for model"
                 fallback_from = primary_model
                 fallback_to = final_model
-            return {"result": result, "actual_cost": actual_cost, "retry_count": retry_count, "primary_model": primary_model, "final_model": final_model, "fallback_triggered": fallback_triggered, "fallback_reason": fallback_reason, "fallback_from": fallback_from, "fallback_to": fallback_to}
+            return {"result": result, "actual_cost": actual_cost, "input_cost": input_cost, "output_cost": output_cost, "retry_count": retry_count, "primary_model": primary_model, "final_model": final_model, "fallback_triggered": fallback_triggered, "fallback_reason": fallback_reason, "fallback_from": fallback_from, "fallback_to": fallback_to, "estimated_tokens": total_tokens, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "cache_hit_tokens": cache_hit_tokens, "cache_miss_tokens": cache_miss_tokens, "cost_per_token": cost_per_token, "cost_per_1k_tokens": cost_per_1k_tokens, "input_price_per_1m_tokens": price["input"], "input_cache_hit_price_per_1m_tokens": input_cache_hit_price, "output_price_per_1m_tokens": price["output"]}
         except requests.HTTPError as e:
             last_error = e
             retry_count += 1

@@ -29,6 +29,7 @@ from app.config import (
     QINIU_KODO_BUCKET,
     QINIU_KODO_PUBLIC_DOMAIN,
     QINIU_KODO_UPLOAD_HOST,
+    _get_video_price_per_second,
 )
 from app.services.llm_service import (
     _resolve_url,
@@ -207,6 +208,32 @@ def _size_to_vidu_resolution(size: str) -> str:
     return mapping.get(text, "720p")
 
 
+def _build_video_cost_meta(model: str, size: str, duration: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    with_reference = bool(
+        str(payload.get("image_url", "")).strip()
+        or str(payload.get("start_image_url", "")).strip()
+        or str(payload.get("end_image_url", "")).strip()
+    )
+    unit_price = _get_video_price_per_second(model, size, with_reference=with_reference)
+    normalized_duration = max(0, int(duration or 0))
+    return {
+        "stage": "video_generate",
+        "cost_type": "video",
+        "primary_model": str(model or "").strip(),
+        "final_model": str(model or "").strip(),
+        "estimated_duration": normalized_duration,
+        "estimated_cost": unit_price * normalized_duration,
+        "actual_cost": unit_price * normalized_duration,
+        "video_duration": normalized_duration,
+        "video_size": str(size or "").strip(),
+        "video_price_per_second": unit_price,
+        "video_with_reference": with_reference,
+        "retry_count": 0,
+        "fallback_triggered": False,
+        "fallback_reason": "",
+    }
+
+
 def _map_task_status(raw_status: str) -> str:
     status = str(raw_status or "").upper()
     if status in {"SUCCEEDED", "FAILED", "CANCELED", "IN_PROGRESS", "IN_QUEUE", "PENDING"}:
@@ -354,7 +381,11 @@ def _create_video_task(payload: Dict[str, Any]) -> Dict[str, Any]:
         try:
             response = _request_no_proxy("POST", url, headers=headers, json=body, timeout=60, verify=False)
             response.raise_for_status()
-            return _normalize_create_video_response(response.json())
+            normalized = _normalize_create_video_response(response.json())
+            return {
+                **normalized,
+                "meta": _build_video_cost_meta(str(model), str(size), duration, payload),
+            }
         except requests.HTTPError as err:
             last_error = err
             can_retry = idx < len(url_candidates) - 1 and _is_not_found_or_method_not_allowed(err)

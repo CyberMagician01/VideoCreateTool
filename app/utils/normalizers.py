@@ -180,6 +180,87 @@ def _normalize_cover_packaging_result(result: Any) -> Dict[str, Any]:
     }
 
 
+def _normalize_task_meta(meta: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(meta, dict):
+        return None
+    return {
+        "stage": _as_text(meta.get("stage")),
+        "cost_type": _as_text(meta.get("cost_type")),
+        "estimated_duration": meta.get("estimated_duration"),
+        "estimated_cost": meta.get("estimated_cost"),
+        "actual_cost": meta.get("actual_cost"),
+        "retry_count": _safe_int(meta.get("retry_count"), 0, minimum=0),
+        "primary_model": _as_text(meta.get("primary_model")),
+        "final_model": _as_text(meta.get("final_model")),
+        "fallback_triggered": bool(meta.get("fallback_triggered")),
+        "fallback_reason": _as_text(meta.get("fallback_reason")),
+        "fallback_from": _as_text(meta.get("fallback_from")),
+        "fallback_to": _as_text(meta.get("fallback_to")),
+        "estimated_tokens": _safe_int(meta.get("estimated_tokens"), 0, minimum=0),
+        "prompt_tokens": _safe_int(meta.get("prompt_tokens"), 0, minimum=0),
+        "completion_tokens": _safe_int(meta.get("completion_tokens"), 0, minimum=0),
+        "cache_hit_tokens": _safe_int(meta.get("cache_hit_tokens"), 0, minimum=0),
+        "cache_miss_tokens": _safe_int(meta.get("cache_miss_tokens"), 0, minimum=0),
+        "cost_per_token": meta.get("cost_per_token"),
+        "cost_per_1k_tokens": meta.get("cost_per_1k_tokens"),
+        "input_cost": meta.get("input_cost"),
+        "output_cost": meta.get("output_cost"),
+        "input_price_per_1m_tokens": meta.get("input_price_per_1m_tokens"),
+        "input_cache_hit_price_per_1m_tokens": meta.get("input_cache_hit_price_per_1m_tokens"),
+        "output_price_per_1m_tokens": meta.get("output_price_per_1m_tokens"),
+        "video_duration": _safe_int(meta.get("video_duration"), 0, minimum=0),
+        "video_size": _as_text(meta.get("video_size")),
+        "video_price_per_second": meta.get("video_price_per_second"),
+        "video_with_reference": bool(meta.get("video_with_reference")),
+        "image_count": _safe_int(meta.get("image_count"), 0, minimum=0),
+        "image_size": _as_text(meta.get("image_size")),
+        "image_price_per_task": meta.get("image_price_per_task"),
+    }
+
+
+def _normalize_cost_records(records: Any) -> list[Dict[str, Any]]:
+    if not isinstance(records, list):
+        return []
+    normalized_records: list[Dict[str, Any]] = []
+    for index, item in enumerate(records[-80:]):
+        if not isinstance(item, dict):
+            continue
+        normalized_records.append({
+            "id": _as_text(item.get("id")) or f"cost_{index + 1}",
+            "time": _as_text(item.get("time")),
+            "stage": _as_text(item.get("stage")),
+            "cost_type": _as_text(item.get("cost_type")),
+            "primary_model": _as_text(item.get("primary_model")),
+            "final_model": _as_text(item.get("final_model")),
+            "estimated_cost": item.get("estimated_cost"),
+            "actual_cost": item.get("actual_cost"),
+            "estimated_duration": item.get("estimated_duration"),
+            "estimated_tokens": _safe_int(item.get("estimated_tokens"), 0, minimum=0),
+            "prompt_tokens": _safe_int(item.get("prompt_tokens"), 0, minimum=0),
+            "completion_tokens": _safe_int(item.get("completion_tokens"), 0, minimum=0),
+            "cache_hit_tokens": _safe_int(item.get("cache_hit_tokens"), 0, minimum=0),
+            "cache_miss_tokens": _safe_int(item.get("cache_miss_tokens"), 0, minimum=0),
+            "cost_per_token": item.get("cost_per_token"),
+            "cost_per_1k_tokens": item.get("cost_per_1k_tokens"),
+            "input_cost": item.get("input_cost"),
+            "output_cost": item.get("output_cost"),
+            "input_price_per_1m_tokens": item.get("input_price_per_1m_tokens"),
+            "input_cache_hit_price_per_1m_tokens": item.get("input_cache_hit_price_per_1m_tokens"),
+            "output_price_per_1m_tokens": item.get("output_price_per_1m_tokens"),
+            "video_duration": _safe_int(item.get("video_duration"), 0, minimum=0),
+            "video_size": _as_text(item.get("video_size")),
+            "video_price_per_second": item.get("video_price_per_second"),
+            "video_with_reference": bool(item.get("video_with_reference")),
+            "image_count": _safe_int(item.get("image_count"), 0, minimum=0),
+            "image_size": _as_text(item.get("image_size")),
+            "image_price_per_task": item.get("image_price_per_task"),
+            "retry_count": _safe_int(item.get("retry_count"), 0, minimum=0),
+            "fallback_triggered": bool(item.get("fallback_triggered")),
+            "fallback_reason": _as_text(item.get("fallback_reason")),
+        })
+    return normalized_records
+
+
 def _normalize_review_dimension(dimension: Any, index: int) -> Optional[Dict[str, Any]]:
     if not isinstance(dimension, dict):
         return None
@@ -545,6 +626,10 @@ def _normalize_project_state(state: Any) -> Dict[str, Any]:
         ),
         "cover_lab": _normalize_cover_packaging_result(state.get("cover_lab") if isinstance(state, dict) else None),
         "title_lab": _normalize_title_packaging_result(state.get("title_lab") if isinstance(state, dict) else None),
+        "task_meta": _normalize_task_meta(state.get("task_meta") if isinstance(state, dict) else None),
+        "task_meta_expanded": bool(state.get("task_meta_expanded", False)) if isinstance(state, dict) else False,
+        "cost_records": _normalize_cost_records(state.get("cost_records") if isinstance(state, dict) else None),
+        "cost_panel_expanded": bool(state.get("cost_panel_expanded", False)) if isinstance(state, dict) else False,
         "workshop": _normalize_workshop_result(state.get("workshop")) if isinstance(state, dict) else None,
         "storyboard": _normalize_storyboard_result(state.get("storyboard")) if isinstance(state, dict) else None,
         "video_lab": _normalize_video_lab_state(state.get("video_lab") if isinstance(state, dict) else None),

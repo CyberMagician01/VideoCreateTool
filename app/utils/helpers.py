@@ -71,6 +71,10 @@ def _default_project_state() -> Dict[str, Any]:
             "topic_tags": [],
             "updated_at": "",
         },
+        "task_meta": None,
+        "task_meta_expanded": False,
+        "cost_records": [],
+        "cost_panel_expanded": False,
         "workshop": None,
         "storyboard": None,
         "video_lab": {
@@ -159,8 +163,10 @@ def _estimate_duration(stage: str) -> int:
     return durations.get(stage, 10)
 
 
-# 新增：计算实际成本，基于model和估算token数
+# 新增：计算实际成本，基于 model 和估算 token 数
 def _calculate_cost(model: str, estimated_tokens: int = 1000) -> float:
-    from app.config import MODEL_COSTS
-    cost_per_token = MODEL_COSTS.get(model, MODEL_COSTS["default"])
-    return cost_per_token * estimated_tokens
+    from app.config import _get_model_price_per_1m
+    price = _get_model_price_per_1m(model)
+    prompt_tokens = int(estimated_tokens * 0.7)
+    completion_tokens = max(0, int(estimated_tokens) - prompt_tokens)
+    return (prompt_tokens * price["input"] + completion_tokens * price["output"]) / 1_000_000
