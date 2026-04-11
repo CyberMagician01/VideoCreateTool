@@ -579,3 +579,95 @@ def _normalize_command_result(result: Any) -> Dict[str, Any]:
         "consistency_report": _string_list(result.get("consistency_report")),
         "suggestions": _string_list(result.get("suggestions")),
     }
+
+
+def _normalize_global_router_result(result: Any) -> Dict[str, Any]:
+    base = {
+        "intent": {
+            "module": "unknown",
+            "action": "unknown",
+            "confidence": 0.0,
+            "risk_level": "medium",
+            "reason": "",
+        },
+        "params": {
+            "command_text": "",
+            "prompt": "",
+            "duration": 10,
+            "model": "viduq3-turbo",
+            "size": "1280*720",
+            "task_id": "",
+            "project_name": "",
+            "project_id": "",
+            "snapshot_name": "",
+            "snapshot_description": "",
+        },
+        "clarify_questions": [],
+        "safety": {
+            "needs_confirmation": False,
+            "confirm_message": "",
+        },
+    }
+    if not isinstance(result, dict):
+        return base
+
+    intent_raw = result.get("intent", {})
+    intent_raw = intent_raw if isinstance(intent_raw, dict) else {}
+    module = _as_text(intent_raw.get("module"))
+    action = _as_text(intent_raw.get("action"))
+    confidence = float(max(0.0, min(1.0, _safe_int(intent_raw.get("confidence"), 0) / 100.0)))
+    if isinstance(intent_raw.get("confidence"), (int, float)):
+        confidence = float(max(0.0, min(1.0, float(intent_raw.get("confidence")))))
+    risk_level = _as_text(intent_raw.get("risk_level")).lower()
+
+    valid_modules = {"creative", "video", "project", "export", "unknown"}
+    valid_actions = {
+        "edit_story",
+        "create_task",
+        "query_task",
+        "create_project",
+        "switch_project",
+        "create_snapshot",
+        "export_markdown",
+        "export_docx",
+        "export_pdf",
+        "unknown",
+    }
+    valid_risk = {"low", "medium", "high"}
+
+    normalized_intent = {
+        "module": module if module in valid_modules else "unknown",
+        "action": action if action in valid_actions else "unknown",
+        "confidence": confidence,
+        "risk_level": risk_level if risk_level in valid_risk else "medium",
+        "reason": _as_text(intent_raw.get("reason")),
+    }
+
+    params_raw = result.get("params", {})
+    params_raw = params_raw if isinstance(params_raw, dict) else {}
+    normalized_params = {
+        "command_text": _as_text(params_raw.get("command_text")),
+        "prompt": _as_text(params_raw.get("prompt")),
+        "duration": min(60, max(1, _safe_int(params_raw.get("duration"), 10, minimum=1))),
+        "model": _as_text(params_raw.get("model")) or "viduq3-turbo",
+        "size": _as_text(params_raw.get("size")) or "1280*720",
+        "task_id": _as_text(params_raw.get("task_id")),
+        "project_name": _as_text(params_raw.get("project_name")),
+        "project_id": _as_text(params_raw.get("project_id")),
+        "snapshot_name": _as_text(params_raw.get("snapshot_name")),
+        "snapshot_description": _as_text(params_raw.get("snapshot_description")),
+    }
+
+    safety_raw = result.get("safety", {})
+    safety_raw = safety_raw if isinstance(safety_raw, dict) else {}
+    normalized_safety = {
+        "needs_confirmation": bool(safety_raw.get("needs_confirmation")),
+        "confirm_message": _as_text(safety_raw.get("confirm_message")),
+    }
+
+    return {
+        "intent": normalized_intent,
+        "params": normalized_params,
+        "clarify_questions": _string_list(result.get("clarify_questions")),
+        "safety": normalized_safety,
+    }

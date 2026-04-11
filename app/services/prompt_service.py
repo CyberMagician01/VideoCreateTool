@@ -577,16 +577,25 @@ def _command_prompt(payload: Dict[str, Any]) -> str:
     project_state = payload.get("project_state", {})
 
     return f"""
-你是短剧创作助手的全局指令执行器。
-请读取当前状态并执行用户自然语言命令，输出严格 JSON。
+你是短剧创作助手的全局命令执行器。
+请读取当前项目状态，并根据用户自然语言命令给出结构化更新结果。
+只返回 JSON，不要返回 Markdown 或解释文字。
 
-用户命令：{command}
+用户命令：
+{command}
+
 当前项目状态：
 {json.dumps(project_state, ensure_ascii=False, indent=2)}
 
+执行约束：
+1. 最小变更：只修改和命令直接相关的字段。
+2. 若命令是“加人物/新增角色”，优先只更新 workshop.characters。
+3. 不要删除或清空无关字段，尤其是 relationships / plot_nodes / timeline_view / card_wall_groups。
+4. 如果信息不足，updated_state 返回空对象，并在 suggestions 中提出澄清问题。
+
 JSON schema:
 {{
-  "command_understanding": "你对命令的理解",
+  "command_understanding": "对命令的理解",
   "updated_state": {{
     "story_card": {{}},
     "workshop": {{}},
@@ -594,5 +603,72 @@ JSON schema:
   }},
   "consistency_report": ["一致性检查结果"],
   "suggestions": ["下一步建议"]
+}}
+""".strip()
+
+
+def _global_router_prompt(payload: Dict[str, Any]) -> str:
+    utterance = payload.get("utterance", "")
+    project_state = payload.get("project_state", {}) if isinstance(payload, dict) else {}
+    context = payload.get("context", {}) if isinstance(payload, dict) else {}
+
+    return f"""
+你是短剧创作助手的全局语义路由器。
+任务：把用户自然语言映射为结构化“模块动作”。
+必须只输出 JSON，不要 markdown，不要解释。
+
+用户输入：
+{utterance}
+
+当前项目状态：
+{json.dumps(project_state, ensure_ascii=False, indent=2)}
+
+补充上下文：
+{json.dumps(context, ensure_ascii=False, indent=2)}
+
+可选 module/action：
+1) creative / edit_story
+2) video / create_task
+3) video / query_task
+4) project / create_project
+5) project / switch_project
+6) project / create_snapshot
+7) export / export_markdown
+8) export / export_docx
+9) export / export_pdf
+10) unknown / unknown
+
+约束：
+1. 严禁使用关键词匹配思维，必须基于语义理解。
+2. 参数尽量补齐，缺失就放空并在 clarify_questions 提问。
+3. 高风险动作（切换项目、覆盖性导出等）risk_level 提高，needs_confirmation 设为 true。
+4. 如果语义不清晰，module/action 返回 unknown。
+
+输出 JSON schema：
+{{
+  "intent": {{
+    "module": "creative|video|project|export|unknown",
+    "action": "edit_story|create_task|query_task|create_project|switch_project|create_snapshot|export_markdown|export_docx|export_pdf|unknown",
+    "confidence": 0.0,
+    "risk_level": "low|medium|high",
+    "reason": "路由理由"
+  }},
+  "params": {{
+    "command_text": "用于 creative.edit_story 的文本",
+    "prompt": "用于 video.create_task",
+    "duration": 10,
+    "model": "viduq3-turbo",
+    "size": "1280*720",
+    "task_id": "",
+    "project_name": "",
+    "project_id": "",
+    "snapshot_name": "",
+    "snapshot_description": ""
+  }},
+  "clarify_questions": ["问题1", "问题2"],
+  "safety": {{
+    "needs_confirmation": false,
+    "confirm_message": ""
+  }}
 }}
 """.strip()

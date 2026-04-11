@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 
+import re
 import requests
 from flask import Blueprint, jsonify, request
 
@@ -10,6 +11,7 @@ from app.services.llm_service import _call_provider_json, _has_qiniu_text_creden
 from app.services.prompt_service import (
     _cover_packaging_prompt,
     _command_prompt,
+    _global_router_prompt,
     _story_engine_prompt,
     _title_packaging_prompt,
     _story_review_prompt,
@@ -28,9 +30,83 @@ from app.utils.normalizers import (
     _normalize_storyboard_result,
     _normalize_command_result,
     _normalize_cover_packaging_result,
+    _normalize_global_router_result,
 )
 
 agent_bp = Blueprint("agent", __name__)
+
+_ADD_CHARACTER_PATTERNS = [
+    r"(?:加|添加|新增|补充)(?:一个|一位|个)?(?:人物|角色)",
+    r"(?:人物|角色)(?:叫|名叫|名字是)",
+]
+
+
+def _extract_character_name(command_text: str) -> str:
+    text = str(command_text or "").strip()
+    if not text:
+        return ""
+
+    match = re.search(r"(?:叫|名叫|名字是)\s*([^\s，。,.！？!?；;]{1,20})", text)
+    if not match:
+        return ""
+    return str(match.group(1)).strip()
+
+
+def _is_add_character_command(command_text: str) -> bool:
+    text = str(command_text or "")
+    if not text:
+        return False
+    return any(re.search(pattern, text) for pattern in _ADD_CHARACTER_PATTERNS)
+
+
+def _apply_command_fallback(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return result
+
+    updated_state = result.get("updated_state", {})
+    if isinstance(updated_state, dict) and updated_state:
+        return result
+
+    command_text = str(payload.get("command", "")).strip()
+    if not _is_add_character_command(command_text):
+        return result
+
+    name = _extract_character_name(command_text)
+    if not name:
+        return result
+
+    project_state = payload.get("project_state", {}) if isinstance(payload, dict) else {}
+    workshop = project_state.get("workshop", {}) if isinstance(project_state, dict) else {}
+    characters = workshop.get("characters", []) if isinstance(workshop, dict) else []
+    existing = [item for item in characters if isinstance(item, dict)]
+
+    if any(str(item.get("name", "")).strip() == name for item in existing):
+        return {
+            **result,
+            "command_understanding": f"命令识别为新增人物，但角色“{name}”已存在。",
+            "updated_state": {},
+            "consistency_report": ["未重复添加角色，保持当前状态不变。"],
+            "suggestions": ["可继续补充该角色的标签、动机和人物弧光。"],
+        }
+
+    fallback_character = {
+        "name": name,
+        "tags": ["待完善"],
+        "motivation": "",
+        "arc": "",
+    }
+
+    return {
+        **result,
+        "command_understanding": f"已按命令新增人物：{name}",
+        "updated_state": {
+            "workshop": {
+                "characters": [*existing, fallback_character],
+            }
+        },
+        "consistency_report": ["采用后端规则兜底，仅增量更新 workshop.characters。"],
+        "suggestions": ["建议补充该角色的标签、动机和人物弧光。"],
+    }
 
 
 @agent_bp.get("/api/story-templates")
@@ -116,6 +192,7 @@ def run_agent_stage():
         "workshop",
         "storyboard",
         "command",
+        "global_router",
         "export",
     }:
         return jsonify({"error": "Unsupported stage."}), 400
@@ -191,6 +268,15 @@ def run_agent_stage():
             )
             result = response["result"]
             result = _normalize_command_result(result)
+            result = _apply_command_fallback(payload, result)
+        elif stage == "global_router":
+            result = _call_provider_json(
+                provider,
+                "??????????????????????????????",
+                _global_router_prompt(payload),
+            )
+            result = _normalize_global_router_result(result)
+            response = {"actual_cost": 0.0, "retry_count": 0}
         else:
             result = _export_markdown(payload)
             response = {"actual_cost": 0.0, "retry_count": 0}  # export不调用模型

@@ -24,11 +24,9 @@ body {
   overflow-x: hidden;
 }
 
-h1,
-h2,
-h3 {
-  font-family: "SimSun", "宋体", serif;
-  margin-top: 0;
+h1, h2, h3 {
+    font-family: "SimSun", "宋体", serif;
+    margin-top: 0;
 }
 
 h3 {
@@ -759,7 +757,6 @@ input[readonly] {
     opacity: 0;
     transform: translateY(8px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0);
@@ -975,7 +972,6 @@ input[readonly] {
     opacity: 0;
     transform: translateY(20px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0);
@@ -1018,7 +1014,107 @@ input[readonly] {
   }
 }
 
-/* Task meta panel styles */
+.global-command-widget {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1200;
+}
+
+.global-command-fab {
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  border: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #be5b23, #dd8f48);
+  box-shadow: 0 10px 28px rgba(96, 48, 16, 0.35);
+  cursor: pointer;
+}
+
+.global-command-panel {
+  width: min(360px, calc(100vw - 24px));
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(58, 29, 14, 0.18);
+  background: rgba(255, 249, 241, 0.98);
+  box-shadow: 0 20px 45px rgba(53, 30, 16, 0.25);
+}
+
+.global-command-widget.collapsed .global-command-panel {
+  display: none;
+}
+
+.global-command-widget.expanded .global-command-fab {
+  display: none;
+}
+
+.global-command-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.global-command-close {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #8f735e;
+  color: #fff;
+  cursor: pointer;
+}
+
+.global-command-input {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.global-command-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.global-command-actions button {
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #b8571e, var(--accent));
+  cursor: pointer;
+}
+
+.global-command-actions .secondary {
+  background: linear-gradient(135deg, #8f735e, #a48670);
+}
+
+.global-command-status {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #6f4f38;
+}
+
+.global-command-status.error {
+  color: #b74924;
+}
+
+.global-command-output {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+@media (max-width: 860px) {
+  .global-command-widget {
+    right: 12px;
+    bottom: 12px;
+  }
+}
+
 .meta-item {
   display: flex;
   justify-content: space-between;

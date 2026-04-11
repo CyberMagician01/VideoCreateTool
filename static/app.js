@@ -3,22 +3,6 @@ const PROVIDER_KEY = 'ai_short_drama_provider_v1';
 const CURRENT_PROJECT_KEY = 'ai_short_drama_current_project_id_v1';
 const AUTO_SAVE_DELAY_MS = 3000;
 
-function createEmptyReviewLab(stage = '') {
-  return {
-    latest_review: {
-      summary: '',
-      overall_score: 0,
-      dimensions: [],
-      top_issues: [],
-      priority_actions: [],
-      low_score_dimensions: [],
-    },
-    rewrite_candidates: [],
-    last_review_stage: stage,
-    last_review_time: '',
-  };
-}
-
 const EMPTY_STATE = {
   story_inputs: {
     idea: '',
@@ -28,15 +12,18 @@ const EMPTY_STATE = {
     template_id: '',
   },
   story_card: null,
-  review_labs: {
-    story_engine: createEmptyReviewLab('story_engine'),
-    workshop: createEmptyReviewLab('workshop'),
-    storyboard: createEmptyReviewLab('storyboard'),
-  },
-  review_panel_state: {
-    story_engine: false,
-    workshop: false,
-    storyboard: false,
+  review_lab: {
+    latest_review: {
+      summary: '',
+      overall_score: 0,
+      dimensions: [],
+      top_issues: [],
+      priority_actions: [],
+      low_score_dimensions: [],
+    },
+    rewrite_candidates: [],
+    last_review_stage: '',
+    last_review_time: '',
   },
   title_lab: {
     current_title: '',
@@ -46,26 +33,6 @@ const EMPTY_STATE = {
     recommended_reason: '',
     title_suggestions: [],
     topic_tags: [],
-    updated_at: '',
-  },
-  cover_lab: {
-    current_title: '',
-    style_preference: '',
-    focus_point: '',
-    summary: '',
-    main_title: '',
-    subtitle: '',
-    hook_lines: [],
-    visual_direction: '',
-    layout_direction: '',
-    color_palette: '',
-    image_prompt: '',
-    generated_image_url: '',
-    image_model: '',
-    image_size: '',
-    image_task_id: '',
-    image_task_status: '',
-    image_status_message: '',
     updated_at: '',
   },
   workshop: null,
@@ -237,83 +204,58 @@ function normalizeTitleLab(titleLab) {
   };
 }
 
-function normalizeCoverLab(coverLab) {
-  const base = EMPTY_STATE.cover_lab;
-  const parsed = (coverLab && typeof coverLab === 'object') ? coverLab : {};
-  return {
-    current_title: toText(parsed.current_title) || base.current_title,
-    style_preference: toText(parsed.style_preference) || base.style_preference,
-    focus_point: toText(parsed.focus_point) || base.focus_point,
-    summary: toText(parsed.summary) || base.summary,
-    main_title: toText(parsed.main_title) || base.main_title,
-    subtitle: toText(parsed.subtitle) || base.subtitle,
-    hook_lines: normalizeStringList(parsed.hook_lines),
-    visual_direction: toText(parsed.visual_direction) || base.visual_direction,
-    layout_direction: toText(parsed.layout_direction) || base.layout_direction,
-    color_palette: toText(parsed.color_palette) || base.color_palette,
-    image_prompt: toText(parsed.image_prompt) || base.image_prompt,
-    generated_image_url: toText(parsed.generated_image_url) || base.generated_image_url,
-    image_model: toText(parsed.image_model) || base.image_model,
-    image_size: toText(parsed.image_size) || base.image_size,
-    image_task_id: toText(parsed.image_task_id) || base.image_task_id,
-    image_task_status: toText(parsed.image_task_status) || base.image_task_status,
-    image_status_message: toText(parsed.image_status_message) || base.image_status_message,
-    updated_at: toText(parsed.updated_at) || base.updated_at,
-  };
-}
-
 function normalizeReviewLab(reviewLab) {
-  const base = createEmptyReviewLab();
+  const base = EMPTY_STATE.review_lab;
   const parsed = (reviewLab && typeof reviewLab === 'object') ? reviewLab : {};
   const latest = (parsed.latest_review && typeof parsed.latest_review === 'object') ? parsed.latest_review : {};
   const dimensions = Array.isArray(latest.dimensions)
     ? latest.dimensions
-      .map((item, index) => {
-        if (!item || typeof item !== 'object') {
-          return null;
-        }
-        return {
-          id: toText(item.id) || `dimension_${index + 1}`,
-          name: toText(item.name) || `维度${index + 1}`,
-          score: Math.max(0, Math.min(100, toInt(item.score, 0, 0))),
-          reason: toText(item.reason),
-          suggestion: toText(item.suggestion),
-        };
-      })
-      .filter(Boolean)
+        .map((item, index) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+          return {
+            id: toText(item.id) || `dimension_${index + 1}`,
+            name: toText(item.name) || `维度${index + 1}`,
+            score: Math.max(0, Math.min(100, toInt(item.score, 0, 0))),
+            reason: toText(item.reason),
+            suggestion: toText(item.suggestion),
+          };
+        })
+        .filter(Boolean)
     : [];
 
   const rewriteCandidates = Array.isArray(parsed.rewrite_candidates)
     ? parsed.rewrite_candidates
-      .map((item, index) => {
-        if (!item || typeof item !== 'object') {
-          return null;
-        }
-        const target = ['story_card', 'workshop', 'storyboard'].includes(toText(item.target))
-          ? toText(item.target)
-          : 'story_card';
-        const storyCard = normalizeStoryCard(item.story_card);
-        const workshop = normalizeWorkshopData(item.workshop);
-        const storyboard = normalizeStoryboardData(item.storyboard);
-        const hasPayload =
-          (target === 'story_card' && storyCard) ||
-          (target === 'workshop' && workshop) ||
-          (target === 'storyboard' && storyboard);
-        if (!hasPayload) {
-          return null;
-        }
-        return {
-          id: toText(item.id) || `rewrite_${index + 1}`,
-          title: toText(item.title) || `改写版本 ${index + 1}`,
-          strategy: toText(item.strategy),
-          focus_dimensions: normalizeStringList(item.focus_dimensions),
-          target,
-          story_card: storyCard,
-          workshop,
-          storyboard,
-        };
-      })
-      .filter(Boolean)
+        .map((item, index) => {
+          if (!item || typeof item !== 'object') {
+            return null;
+          }
+          const target = ['story_card', 'workshop', 'storyboard'].includes(toText(item.target))
+            ? toText(item.target)
+            : 'story_card';
+          const storyCard = normalizeStoryCard(item.story_card);
+          const workshop = normalizeWorkshopData(item.workshop);
+          const storyboard = normalizeStoryboardData(item.storyboard);
+          const hasPayload =
+            (target === 'story_card' && storyCard) ||
+            (target === 'workshop' && workshop) ||
+            (target === 'storyboard' && storyboard);
+          if (!hasPayload) {
+            return null;
+          }
+          return {
+            id: toText(item.id) || `rewrite_${index + 1}`,
+            title: toText(item.title) || `改写版本 ${index + 1}`,
+            strategy: toText(item.strategy),
+            focus_dimensions: normalizeStringList(item.focus_dimensions),
+            target,
+            story_card: storyCard,
+            workshop,
+            storyboard,
+          };
+        })
+        .filter(Boolean)
     : [];
 
   return {
@@ -331,65 +273,6 @@ function normalizeReviewLab(reviewLab) {
   };
 }
 
-function normalizeReviewLabs(reviewLabs, legacyReviewLab = null) {
-  const parsed = (reviewLabs && typeof reviewLabs === 'object') ? reviewLabs : {};
-  const result = {
-    story_engine: normalizeReviewLab(parsed.story_engine),
-    workshop: normalizeReviewLab(parsed.workshop),
-    storyboard: normalizeReviewLab(parsed.storyboard),
-  };
-
-  result.story_engine.last_review_stage ||= 'story_engine';
-  result.workshop.last_review_stage ||= 'workshop';
-  result.storyboard.last_review_stage ||= 'storyboard';
-
-  if (legacyReviewLab && typeof legacyReviewLab === 'object') {
-    const legacy = normalizeReviewLab(legacyReviewLab);
-    const stage = ['story_engine', 'workshop', 'storyboard'].includes(legacy.last_review_stage)
-      ? legacy.last_review_stage
-      : 'story_engine';
-    result[stage] = {
-      ...legacy,
-      last_review_stage: stage,
-    };
-  }
-
-  return result;
-}
-
-function normalizeReviewPanelState(panelState) {
-  const base = EMPTY_STATE.review_panel_state;
-  const parsed = (panelState && typeof panelState === 'object') ? panelState : {};
-  return {
-    story_engine: Boolean(parsed.story_engine ?? base.story_engine),
-    workshop: Boolean(parsed.workshop ?? base.workshop),
-    storyboard: Boolean(parsed.storyboard ?? base.storyboard),
-  };
-}
-
-function getStageReviewLab(stage) {
-  return normalizeReviewLab(state.review_labs?.[stage]);
-}
-
-function setStageReviewLab(stage, reviewLab) {
-  state.review_labs = normalizeReviewLabs({
-    ...(state.review_labs || {}),
-    [stage]: reviewLab,
-  });
-}
-
-function isReviewPanelExpanded(stage) {
-  return Boolean(state.review_panel_state?.[stage]);
-}
-
-function setReviewPanelExpanded(stage, expanded) {
-  state.review_panel_state = normalizeReviewPanelState({
-    ...(state.review_panel_state || {}),
-    [stage]: Boolean(expanded),
-  });
-  saveState();
-}
-
 function normalizeWorkshopData(workshop) {
   if (!workshop || typeof workshop !== 'object') {
     return null;
@@ -397,67 +280,67 @@ function normalizeWorkshopData(workshop) {
 
   const characters = Array.isArray(workshop.characters)
     ? workshop.characters
-      .map((character) => {
-        if (!character || typeof character !== 'object') {
-          return null;
-        }
-        const normalized = {
-          name: toText(character.name || character.character_name),
-          tags: normalizeStringList(character.tags || character.labels),
-          motivation: toText(character.motivation || character.goal),
-          arc: toText(character.arc || character.character_arc),
-        };
-        return normalized.name ? normalized : null;
-      })
-      .filter(Boolean)
+        .map((character) => {
+          if (!character || typeof character !== 'object') {
+            return null;
+          }
+          const normalized = {
+            name: toText(character.name || character.character_name),
+            tags: normalizeStringList(character.tags || character.labels),
+            motivation: toText(character.motivation || character.goal),
+            arc: toText(character.arc || character.character_arc),
+          };
+          return normalized.name ? normalized : null;
+        })
+        .filter(Boolean)
     : [];
 
   const relationships = Array.isArray(workshop.relationships)
     ? workshop.relationships
-      .map((relationship) => {
-        if (!relationship || typeof relationship !== 'object') {
-          return null;
-        }
-        const normalized = {
-          from: toText(relationship.from || relationship.source || relationship.from_character),
-          to: toText(relationship.to || relationship.target || relationship.to_character),
-          type: toText(relationship.type || relationship.relationship || relationship.relation),
-          tension: toText(relationship.tension || relationship.conflict),
-        };
-        return normalized.from && normalized.to ? normalized : null;
-      })
-      .filter(Boolean)
+        .map((relationship) => {
+          if (!relationship || typeof relationship !== 'object') {
+            return null;
+          }
+          const normalized = {
+            from: toText(relationship.from || relationship.source || relationship.from_character),
+            to: toText(relationship.to || relationship.target || relationship.to_character),
+            type: toText(relationship.type || relationship.relationship || relationship.relation),
+            tension: toText(relationship.tension || relationship.conflict),
+          };
+          return normalized.from && normalized.to ? normalized : null;
+        })
+        .filter(Boolean)
     : [];
 
   const plotNodes = Array.isArray(workshop.plot_nodes)
     ? workshop.plot_nodes
-      .map((node, index) => {
-        if (!node || typeof node !== 'object') {
-          return null;
-        }
-        const normalized = {
-          id: toText(node.id || node.node_id) || `N${index + 1}`,
-          template_stage: toText(node.template_stage || node.phase || node.stage),
-          summary: toText(node.summary || node.plot || node.content || node.scene_summary),
-          location: toText(node.location || node.scene_location),
-          action_draft: toText(node.action_draft || node.action || node.action_description),
-          dialogue_draft: normalizeStringList(node.dialogue_draft || node.dialogue || node.dialogues),
-          emotion_shift: toText(node.emotion_shift || node.emotional_shift || node.emotion),
-          consistency_check: toText(node.consistency_check || node.logic_check || node.consistency),
-        };
-        return (
-          normalized.template_stage ||
-          normalized.summary ||
-          normalized.location ||
-          normalized.action_draft ||
-          normalized.dialogue_draft.length ||
-          normalized.emotion_shift ||
-          normalized.consistency_check
-        )
-          ? normalized
-          : null;
-      })
-      .filter(Boolean)
+        .map((node, index) => {
+          if (!node || typeof node !== 'object') {
+            return null;
+          }
+          const normalized = {
+            id: toText(node.id || node.node_id) || `N${index + 1}`,
+            template_stage: toText(node.template_stage || node.phase || node.stage),
+            summary: toText(node.summary || node.plot || node.content || node.scene_summary),
+            location: toText(node.location || node.scene_location),
+            action_draft: toText(node.action_draft || node.action || node.action_description),
+            dialogue_draft: normalizeStringList(node.dialogue_draft || node.dialogue || node.dialogues),
+            emotion_shift: toText(node.emotion_shift || node.emotional_shift || node.emotion),
+            consistency_check: toText(node.consistency_check || node.logic_check || node.consistency),
+          };
+          return (
+            normalized.template_stage ||
+            normalized.summary ||
+            normalized.location ||
+            normalized.action_draft ||
+            normalized.dialogue_draft.length ||
+            normalized.emotion_shift ||
+            normalized.consistency_check
+          )
+            ? normalized
+            : null;
+        })
+        .filter(Boolean)
     : [];
 
   const availableIds = new Set(plotNodes.map((node) => node.id));
@@ -468,17 +351,17 @@ function normalizeWorkshopData(workshop) {
 
   const cardWallGroups = Array.isArray(workshop.card_wall_groups)
     ? workshop.card_wall_groups
-      .map((group) => {
-        if (!group || typeof group !== 'object') {
-          return null;
-        }
-        const normalized = {
-          group: toText(group.group || group.name || group.title),
-          node_ids: normalizeStringList(group.node_ids || group.ids).filter((id) => availableIds.has(id)),
-        };
-        return normalized.group || normalized.node_ids.length ? normalized : null;
-      })
-      .filter(Boolean)
+        .map((group) => {
+          if (!group || typeof group !== 'object') {
+            return null;
+          }
+          const normalized = {
+            group: toText(group.group || group.name || group.title),
+            node_ids: normalizeStringList(group.node_ids || group.ids).filter((id) => availableIds.has(id)),
+          };
+          return normalized.group || normalized.node_ids.length ? normalized : null;
+        })
+        .filter(Boolean)
     : [];
 
   if (characters.length || relationships.length || plotNodes.length || cardWallGroups.length) {
@@ -511,38 +394,38 @@ function normalizeStoryboardData(storyboard) {
 
   const storyboards = Array.isArray(storyboard.storyboards)
     ? storyboard.storyboards
-      .map((shot, index) => {
-        if (!shot || typeof shot !== 'object') {
-          return null;
-        }
-        const normalized = {
-          shot_id: toText(shot.shot_id || shot.id) || `S${index + 1}`,
-          related_node_id: toText(shot.related_node_id || shot.node_id || shot.plot_node_id),
-          shot_type: toText(shot.shot_type || shot.camera_size),
-          camera_movement: toText(shot.camera_movement || shot.movement || shot.camera_motion),
-          visual_description: toText(
-            shot.visual_description || shot.visual || shot.image_description || shot.description,
-          ),
-          dialogue_or_sfx: toText(shot.dialogue_or_sfx || shot.dialogue || shot.sound_design || shot.audio),
-          duration_sec: toInt(shot.duration_sec || shot.duration || shot.estimated_duration, 4, 1),
-          shooting_note: toText(shot.shooting_note || shot.note || shot.production_note),
-          prompt_draft: toText(shot.prompt_draft || shot.video_prompt || shot.prompt || shot.visual_prompt),
-        };
-        if (!normalized.prompt_draft) {
-          normalized.prompt_draft = deriveStoryboardPrompt(normalized);
-        }
-        return (
-          normalized.related_node_id ||
-          normalized.shot_type ||
-          normalized.camera_movement ||
-          normalized.visual_description ||
-          normalized.dialogue_or_sfx ||
-          normalized.prompt_draft
-        )
-          ? normalized
-          : null;
-      })
-      .filter(Boolean)
+        .map((shot, index) => {
+          if (!shot || typeof shot !== 'object') {
+            return null;
+          }
+          const normalized = {
+            shot_id: toText(shot.shot_id || shot.id) || `S${index + 1}`,
+            related_node_id: toText(shot.related_node_id || shot.node_id || shot.plot_node_id),
+            shot_type: toText(shot.shot_type || shot.camera_size),
+            camera_movement: toText(shot.camera_movement || shot.movement || shot.camera_motion),
+            visual_description: toText(
+              shot.visual_description || shot.visual || shot.image_description || shot.description,
+            ),
+            dialogue_or_sfx: toText(shot.dialogue_or_sfx || shot.dialogue || shot.sound_design || shot.audio),
+            duration_sec: toInt(shot.duration_sec || shot.duration || shot.estimated_duration, 4, 1),
+            shooting_note: toText(shot.shooting_note || shot.note || shot.production_note),
+            prompt_draft: toText(shot.prompt_draft || shot.video_prompt || shot.prompt || shot.visual_prompt),
+          };
+          if (!normalized.prompt_draft) {
+            normalized.prompt_draft = deriveStoryboardPrompt(normalized);
+          }
+          return (
+            normalized.related_node_id ||
+            normalized.shot_type ||
+            normalized.camera_movement ||
+            normalized.visual_description ||
+            normalized.dialogue_or_sfx ||
+            normalized.prompt_draft
+          )
+            ? normalized
+            : null;
+        })
+        .filter(Boolean)
     : [];
 
   const estimatedTotalDuration = toInt(
@@ -578,10 +461,6 @@ function normalizeVideoState(videoLab) {
     long_segments: [],
     total_duration: 0,
     filename_prefix: '',
-    long_chain_by_last_frame: false,
-    long_model: '',
-    long_size: '',
-    long_prompt_extend: true,
   };
 
   if (!videoLab || typeof videoLab !== 'object') {
@@ -590,20 +469,20 @@ function normalizeVideoState(videoLab) {
 
   const longSegments = Array.isArray(videoLab.long_segments)
     ? videoLab.long_segments
-      .map((segment, index) => {
-        if (!segment || typeof segment !== 'object') {
-          return null;
-        }
-        return {
-          index: toInt(segment.index, index + 1, 1),
-          duration: toInt(segment.duration, 0, 0),
-          prompt: toText(segment.prompt),
-          task_id: toText(segment.task_id),
-          task_status: toText(segment.task_status),
-          video_url: toText(segment.video_url || segment.url),
-        };
-      })
-      .filter(Boolean)
+        .map((segment, index) => {
+          if (!segment || typeof segment !== 'object') {
+            return null;
+          }
+          return {
+            index: toInt(segment.index, index + 1, 1),
+            duration: toInt(segment.duration, 0, 0),
+            prompt: toText(segment.prompt),
+            task_id: toText(segment.task_id),
+            task_status: toText(segment.task_status),
+            video_url: toText(segment.video_url || segment.url),
+          };
+        })
+        .filter(Boolean)
     : [];
 
   return {
@@ -620,10 +499,6 @@ function normalizeVideoState(videoLab) {
     long_segments: longSegments,
     total_duration: toInt(videoLab.total_duration, 0, 0),
     filename_prefix: toText(videoLab.filename_prefix),
-    long_chain_by_last_frame: videoLab.long_chain_by_last_frame === true,
-    long_model: toText(videoLab.long_model),
-    long_size: toText(videoLab.long_size),
-    long_prompt_extend: videoLab.long_prompt_extend !== false,
   };
 }
 
@@ -644,13 +519,9 @@ let selectedRelationIndex = null;
 let draftRelationNodes = [];
 let visualUndoStack = [];
 let videoPollTimer = null;
-let longChainPollTimer = null;
-let longChainBusy = false;
 let providersList = [];
 let storyTemplates = [];
 const VIDEO_POLL_INTERVAL_MS = 15000;
-const COVER_IMAGE_POLL_INTERVAL_MS = 5000;
-const COVER_IMAGE_POLL_MAX_ATTEMPTS = 24;
 
 function setAutoSaveStatus(text) {
   const target = bind('project-save-status');
@@ -731,9 +602,7 @@ function normalizeState(input) {
   return {
     story_inputs: normalizeStoryInputs(parsed.story_inputs),
     story_card: normalizeStoryCard(parsed.story_card),
-    review_labs: normalizeReviewLabs(parsed.review_labs, parsed.review_lab),
-    review_panel_state: normalizeReviewPanelState(parsed.review_panel_state),
-    cover_lab: normalizeCoverLab(parsed.cover_lab),
+    review_lab: normalizeReviewLab(parsed.review_lab),
     title_lab: normalizeTitleLab(parsed.title_lab),
     workshop: normalizeWorkshopData(parsed.workshop),
     storyboard: normalizeStoryboardData(parsed.storyboard),
@@ -745,9 +614,7 @@ function applyState(newState) {
   const normalized = normalizeState(newState);
   state.story_inputs = normalized.story_inputs;
   state.story_card = normalized.story_card;
-  state.review_labs = normalized.review_labs;
-  state.review_panel_state = normalized.review_panel_state;
-  state.cover_lab = normalized.cover_lab;
+  state.review_lab = normalized.review_lab;
   state.title_lab = normalized.title_lab;
   state.workshop = normalized.workshop;
   state.storyboard = normalized.storyboard;
@@ -835,6 +702,632 @@ function updateOutput(id, text) {
   if (target) {
     target.textContent = text;
   }
+}
+
+function refreshCoreDraftOutputs() {
+  if (bind('story-output') && state.story_card) {
+    updateOutput('story-output', formatStoryResultV2({ story_card: state.story_card }));
+  }
+  if (bind('workshop-output') && state.workshop) {
+    updateOutput('workshop-output', formatWorkshopResult(state.workshop));
+  }
+  if (bind('storyboard-output') && state.storyboard) {
+    updateOutput('storyboard-output', formatStoryboardResult(state.storyboard));
+  }
+}
+
+function mergeStoryCardPatch(currentStoryCard, incomingStoryCardRaw) {
+  if (!incomingStoryCardRaw || typeof incomingStoryCardRaw !== 'object') {
+    return currentStoryCard || null;
+  }
+  const merged = {
+    ...(currentStoryCard || {}),
+    ...incomingStoryCardRaw,
+  };
+  return normalizeStoryCard(merged) || currentStoryCard || null;
+}
+
+function mergeWorkshopPatch(currentWorkshop, incomingWorkshopRaw) {
+  const incomingWorkshop = normalizeWorkshopData(incomingWorkshopRaw);
+  if (!incomingWorkshop) {
+    return currentWorkshop || null;
+  }
+  if (!currentWorkshop) {
+    return incomingWorkshop;
+  }
+
+  const merged = {
+    characters: [],
+    relationships: [],
+    plot_nodes: [],
+    timeline_view: [],
+    card_wall_groups: [],
+  };
+
+  const characterMap = new Map();
+  (currentWorkshop.characters || []).forEach((item) => {
+    if (item?.name) {
+      characterMap.set(item.name, item);
+    }
+  });
+  (incomingWorkshop.characters || []).forEach((item) => {
+    if (!item?.name) return;
+    const prev = characterMap.get(item.name) || {};
+    characterMap.set(item.name, {
+      ...prev,
+      ...item,
+      tags: (item.tags && item.tags.length) ? item.tags : (prev.tags || []),
+    });
+  });
+  merged.characters = Array.from(characterMap.values());
+
+  const relationMap = new Map();
+  const relationKey = (item) => `${item?.from || ''}->${item?.to || ''}`;
+  (currentWorkshop.relationships || []).forEach((item) => {
+    const key = relationKey(item);
+    if (item?.from && item?.to) {
+      relationMap.set(key, item);
+    }
+  });
+  (incomingWorkshop.relationships || []).forEach((item) => {
+    const key = relationKey(item);
+    if (item?.from && item?.to) {
+      const prev = relationMap.get(key) || {};
+      relationMap.set(key, { ...prev, ...item });
+    }
+  });
+  merged.relationships = Array.from(relationMap.values());
+
+  const nodeMap = new Map();
+  (currentWorkshop.plot_nodes || []).forEach((item) => {
+    if (item?.id) {
+      nodeMap.set(item.id, item);
+    }
+  });
+  (incomingWorkshop.plot_nodes || []).forEach((item) => {
+    if (!item?.id) return;
+    const prev = nodeMap.get(item.id) || {};
+    nodeMap.set(item.id, {
+      ...prev,
+      ...item,
+      dialogue_draft: (item.dialogue_draft && item.dialogue_draft.length)
+        ? item.dialogue_draft
+        : (prev.dialogue_draft || []),
+    });
+  });
+  merged.plot_nodes = Array.from(nodeMap.values());
+
+  merged.timeline_view = (incomingWorkshop.timeline_view && incomingWorkshop.timeline_view.length)
+    ? incomingWorkshop.timeline_view
+    : (currentWorkshop.timeline_view || []);
+  if (!merged.timeline_view.length && merged.plot_nodes.length) {
+    merged.timeline_view = merged.plot_nodes.map((item) => item.id).filter(Boolean);
+  }
+
+  const groupMap = new Map();
+  (currentWorkshop.card_wall_groups || []).forEach((item) => {
+    if (item?.group) {
+      groupMap.set(item.group, item);
+    }
+  });
+  (incomingWorkshop.card_wall_groups || []).forEach((item) => {
+    if (!item?.group) return;
+    const prev = groupMap.get(item.group) || { group: item.group, node_ids: [] };
+    groupMap.set(item.group, {
+      group: item.group,
+      node_ids: Array.from(new Set([...(prev.node_ids || []), ...(item.node_ids || [])])),
+    });
+  });
+  merged.card_wall_groups = Array.from(groupMap.values());
+
+  return normalizeWorkshopData(merged) || currentWorkshop || null;
+}
+
+function mergeStoryboardPatch(currentStoryboard, incomingStoryboardRaw) {
+  const incomingStoryboard = normalizeStoryboardData(incomingStoryboardRaw);
+  if (!incomingStoryboard) {
+    return currentStoryboard || null;
+  }
+  if (!currentStoryboard) {
+    return incomingStoryboard;
+  }
+
+  const shotMap = new Map();
+  (currentStoryboard.storyboards || []).forEach((item) => {
+    if (item?.shot_id) {
+      shotMap.set(item.shot_id, item);
+    }
+  });
+  (incomingStoryboard.storyboards || []).forEach((item) => {
+    if (!item?.shot_id) return;
+    const prev = shotMap.get(item.shot_id) || {};
+    shotMap.set(item.shot_id, {
+      ...prev,
+      ...item,
+    });
+  });
+
+  const merged = {
+    storyboards: Array.from(shotMap.values()),
+    estimated_total_duration_sec: incomingStoryboard.estimated_total_duration_sec
+      || currentStoryboard.estimated_total_duration_sec
+      || 0,
+    export_ready_checklist: (incomingStoryboard.export_ready_checklist && incomingStoryboard.export_ready_checklist.length)
+      ? incomingStoryboard.export_ready_checklist
+      : (currentStoryboard.export_ready_checklist || []),
+  };
+  return normalizeStoryboardData(merged) || currentStoryboard || null;
+}
+
+function formatCommandResult(result) {
+  let cmdText = `【理解命令】\n${result?.command_understanding || '-'}\n\n`;
+  cmdText += '【一致性检查】\n';
+  if (result?.consistency_report?.length) {
+    result.consistency_report.forEach((item) => {
+      cmdText += `- ${item}\n`;
+    });
+  } else {
+    cmdText += '-\n';
+  }
+
+  cmdText += '\n【下一步建议】\n';
+  if (result?.suggestions?.length) {
+    result.suggestions.forEach((item) => {
+      cmdText += `- ${item}\n`;
+    });
+  } else {
+    cmdText += '-\n';
+  }
+  return cmdText.trim();
+}
+
+async function applyCommandStatePatch(result) {
+  const updatedState = (result && typeof result === 'object' && result.updated_state && typeof result.updated_state === 'object')
+    ? result.updated_state
+    : {};
+  let hasStateChanged = false;
+
+  if (Object.prototype.hasOwnProperty.call(updatedState, 'story_card')) {
+    const nextStoryCard = mergeStoryCardPatch(state.story_card, updatedState.story_card);
+    if (JSON.stringify(nextStoryCard) !== JSON.stringify(state.story_card)) {
+      state.story_card = nextStoryCard;
+      hasStateChanged = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updatedState, 'workshop')) {
+    const nextWorkshop = mergeWorkshopPatch(state.workshop, updatedState.workshop);
+    if (JSON.stringify(nextWorkshop) !== JSON.stringify(state.workshop)) {
+      state.workshop = nextWorkshop;
+      hasStateChanged = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updatedState, 'storyboard')) {
+    const nextStoryboard = mergeStoryboardPatch(state.storyboard, updatedState.storyboard);
+    if (JSON.stringify(nextStoryboard) !== JSON.stringify(state.storyboard)) {
+      state.storyboard = nextStoryboard;
+      hasStateChanged = true;
+    }
+  }
+
+  if (!hasStateChanged) {
+    return false;
+  }
+
+  setAutoSaveStatus('命令已应用，正在保存...');
+  saveState();
+  refreshCoreDraftOutputs();
+  refreshVisualEditors();
+  await saveProjectStateNow();
+
+  if (bind('review-panel')) {
+    renderReviewLab('正在根据最新修改重新评分...');
+    const nextStage = inferReviewStage();
+    await runStoryReviewFlow(nextStage, { withRewrite: stageSupportsRewrite(nextStage) });
+  }
+
+  return true;
+}
+
+async function executeGlobalCommand(commandText, options = {}) {
+  const opts = {
+    outputId: 'command-output',
+    source: 'text',
+    setStatus: null,
+    ...options,
+  };
+  const text = toText(commandText);
+
+  if (!text) {
+    if (opts.outputId) {
+      updateOutput(opts.outputId, '请先输入命令。');
+    }
+    if (typeof opts.setStatus === 'function') {
+      opts.setStatus('请先输入命令。', true);
+    }
+    return { ok: false, text: '', error: 'empty_command' };
+  }
+
+  if (opts.outputId) {
+    updateOutput(opts.outputId, opts.source === 'voice' ? '正在识别并执行语音命令...' : '执行中...');
+  }
+  if (typeof opts.setStatus === 'function') {
+    opts.setStatus('正在执行命令...');
+  }
+
+  try {
+    const payload = {
+      command: text,
+      project_state: {
+        story_card: state.story_card,
+        workshop: state.workshop,
+        storyboard: state.storyboard,
+      },
+    };
+
+    const data = await runStage('command', payload);
+    if (!data.ok) {
+      const errorText = `错误: ${data.error}\n${data.detail || ''}`.trim();
+      if (opts.outputId) {
+        updateOutput(opts.outputId, errorText);
+      }
+      if (typeof opts.setStatus === 'function') {
+        opts.setStatus(`执行失败：${data.error || 'unknown'}`, true);
+      }
+      return { ok: false, text: errorText, error: data.error || 'command_failed' };
+    }
+
+    await applyCommandStatePatch(data.result);
+    const formatted = formatCommandResult(data.result);
+    if (opts.outputId) {
+      updateOutput(opts.outputId, formatted);
+    }
+    if (typeof opts.setStatus === 'function') {
+      opts.setStatus('命令执行成功。');
+    }
+    return { ok: true, text: formatted, result: data.result };
+  } catch (err) {
+    const errorText = `错误: ${err.message || err}`;
+    if (opts.outputId) {
+      updateOutput(opts.outputId, errorText);
+    }
+    if (typeof opts.setStatus === 'function') {
+      opts.setStatus(`执行失败：${err.message || err}`, true);
+    }
+    return { ok: false, text: errorText, error: err.message || String(err) };
+  }
+}
+
+async function routeGlobalIntent(utterance) {
+  const payload = {
+    utterance: toText(utterance),
+    project_state: {
+      story_card: state.story_card,
+      workshop: state.workshop,
+      storyboard: state.storyboard,
+    },
+    context: {
+      current_project_id: currentProjectId || '',
+      current_project_name: currentProjectMeta?.name || '',
+      page_path: window.location.pathname,
+      available_projects: (projectsCache || []).map((item) => ({ id: String(item.id || ''), name: item.name || '' })),
+      video_task_id: state.video_lab?.task_id || '',
+    },
+  };
+  const data = await runStage('global_router', payload);
+  return data;
+}
+
+async function executeRoutedAction(routeResult, rawCommand, options = {}) {
+  const opts = {
+    source: 'text',
+    setStatus: null,
+    ...options,
+  };
+  const intent = routeResult?.intent || {};
+  const params = routeResult?.params || {};
+  const moduleName = toText(intent.module);
+  const action = toText(intent.action);
+
+  if (moduleName === 'creative' && action === 'edit_story') {
+    const commandText = toText(params.command_text) || toText(rawCommand);
+    return executeGlobalCommand(commandText, { outputId: null, source: opts.source, setStatus: opts.setStatus });
+  }
+
+  if (moduleName === 'video' && action === 'query_task') {
+    const taskId = toText(params.task_id) || toText(state.video_lab?.task_id);
+    if (!taskId) {
+      return { ok: false, text: '未提供 task_id，请补充“查询哪个任务”。', error: 'missing_task_id' };
+    }
+    const data = await fetchJson(`/api/video/task/${taskId}`, { method: 'GET' });
+    if (!data.ok) {
+      return { ok: false, text: `查询失败: ${data.error || 'unknown'}`, error: data.error || 'query_failed' };
+    }
+    const output = data.result?.output || data.result || {};
+    const video = getVideoState();
+    video.task_id = taskId;
+    video.task_status = output.task_status || output.status || video.task_status || '';
+    video.video_url = output.video_url || output.url || output?.result?.video?.url || video.video_url || '';
+    video.last_check_time = new Date().toLocaleString();
+    saveState();
+    if (video.video_url) {
+      renderVideoResult(video.video_url);
+    }
+    const text = `视频任务状态: ${video.task_status || 'UNKNOWN'}\nTask ID: ${taskId}${video.video_url ? `\nURL: ${video.video_url}` : ''}`;
+    return { ok: true, text };
+  }
+
+  if (moduleName === 'video' && action === 'create_task') {
+    const prompt = toText(params.prompt) || toText(state.video_lab?.prompt) || toText(bind('video-prompt')?.value);
+    if (!prompt) {
+      return { ok: false, text: '请先提供视频提示词。', error: 'missing_prompt' };
+    }
+    const payload = {
+      prompt,
+      model: toText(params.model) || 'viduq3-turbo',
+      size: toText(params.size) || '1280*720',
+      duration: toInt(params.duration, 10, 1),
+      prompt_extend: true,
+      image_url: toText(state.video_lab?.image_url),
+      start_image_url: toText(state.video_lab?.start_image_url),
+      end_image_url: toText(state.video_lab?.end_image_url),
+      video_mode: detectVideoMode(
+        toText(state.video_lab?.image_url),
+        toText(state.video_lab?.start_image_url),
+        toText(state.video_lab?.end_image_url),
+      ),
+    };
+    const data = await fetchJson('/api/video/create-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload }),
+    });
+    if (!data.ok) {
+      return { ok: false, text: `创建失败: ${data.error || 'unknown'}`, error: data.error || 'create_video_failed' };
+    }
+    const output = data.result?.output || data.result || {};
+    const video = getVideoState();
+    video.prompt = payload.prompt;
+    video.task_id = output.task_id || output.request_id || '';
+    video.task_status = output.task_status || output.status || 'PENDING';
+    saveState();
+    return { ok: true, text: `已创建视频任务\nTask ID: ${video.task_id}\n状态: ${video.task_status}` };
+  }
+
+  if (moduleName === 'project' && action === 'create_project') {
+    const projectName = toText(params.project_name) || `语音项目 ${formatTimeHHmmss()}`;
+    const data = await fetchJson('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: projectName,
+        creator: '语音助手',
+        description: '',
+        state: EMPTY_STATE,
+        last_provider: currentProvider,
+      }),
+    });
+    if (!data.ok) {
+      return { ok: false, text: `创建项目失败: ${data.error || 'unknown'}`, error: data.error || 'create_project_failed' };
+    }
+    await loadProjects();
+    if (data.project?.id) {
+      await switchProject(String(data.project.id));
+    }
+    return { ok: true, text: `已创建并切换到项目：${projectName}` };
+  }
+
+  if (moduleName === 'project' && action === 'switch_project') {
+    const targetId = toText(params.project_id);
+    const targetName = toText(params.project_name);
+    let selected = null;
+    if (targetId) {
+      selected = (projectsCache || []).find((item) => String(item.id) === targetId);
+    }
+    if (!selected && targetName) {
+      selected = (projectsCache || []).find((item) => toText(item.name).includes(targetName));
+    }
+    if (!selected) {
+      return { ok: false, text: '未找到目标项目，请补充项目名。', error: 'project_not_found' };
+    }
+    await switchProject(String(selected.id));
+    return { ok: true, text: `已切换到项目：${selected.name || selected.id}` };
+  }
+
+  if (moduleName === 'project' && action === 'create_snapshot') {
+    if (!currentProjectId) {
+      return { ok: false, text: '当前没有可用项目。', error: 'missing_project' };
+    }
+    const data = await fetchJson(`/api/projects/${currentProjectId}/snapshots`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: toText(params.snapshot_name) || `语音快照 ${new Date().toLocaleString()}`,
+        description: toText(params.snapshot_description),
+      }),
+    });
+    if (!data.ok) {
+      return { ok: false, text: `保存快照失败: ${data.error || 'unknown'}`, error: data.error || 'snapshot_failed' };
+    }
+    snapshotCache = data.snapshots || snapshotCache;
+    renderSnapshotList();
+    return { ok: true, text: `快照已保存：${data.snapshot?.name || '未命名快照'}` };
+  }
+
+  if (moduleName === 'export' && action === 'export_markdown') {
+    const data = await runStage('export', buildExportPayload());
+    if (!data.ok) {
+      return { ok: false, text: `导出失败: ${data.error || 'unknown'}`, error: data.error || 'export_failed' };
+    }
+    const markdownText = toText(data.result?.markdown || data.result || '');
+    return { ok: true, text: markdownText || '导出完成。' };
+  }
+
+  if (moduleName === 'export' && action === 'export_docx') {
+    await downloadFile('/api/export/docx', 'ai_short_drama_export.docx', buildExportPayload());
+    return { ok: true, text: '已开始下载 DOCX。' };
+  }
+
+  if (moduleName === 'export' && action === 'export_pdf') {
+    await downloadFile('/api/export/pdf', 'ai_short_drama_export.pdf', buildExportPayload());
+    return { ok: true, text: '已开始下载 PDF。' };
+  }
+
+  return {
+    ok: false,
+    text: '暂时无法执行该命令，请换个说法或补充细节。',
+    error: 'unsupported_intent',
+  };
+}
+
+function getIntentActionLabel(intent) {
+  const moduleName = toText(intent?.module);
+  const action = toText(intent?.action);
+  const key = `${moduleName}/${action}`;
+  const labels = {
+    'creative/edit_story': '编辑创作内容',
+    'video/create_task': '创建视频任务',
+    'video/query_task': '查询视频任务',
+    'project/create_project': '新建项目',
+    'project/switch_project': '切换项目',
+    'project/create_snapshot': '创建项目快照',
+    'export/export_markdown': '导出 Markdown',
+    'export/export_docx': '导出 DOCX',
+    'export/export_pdf': '导出 PDF',
+  };
+  return labels[key] || '执行动作';
+}
+
+function shouldForceConfirmation(routeResult) {
+  const moduleName = toText(routeResult?.intent?.module);
+  const action = toText(routeResult?.intent?.action);
+  const risk = toText(routeResult?.intent?.risk_level).toLowerCase();
+  if (risk === 'high') return true;
+  if (moduleName === 'project' && action === 'switch_project') return true;
+  if (moduleName === 'export' && ['export_docx', 'export_pdf'].includes(action)) return true;
+  return false;
+}
+
+function buildConfirmationMessage(routeResult) {
+  const safety = routeResult?.safety || {};
+  const custom = toText(safety.confirm_message);
+  if (custom) return custom;
+
+  const moduleName = toText(routeResult?.intent?.module);
+  const action = toText(routeResult?.intent?.action);
+  const params = routeResult?.params || {};
+  const label = getIntentActionLabel(routeResult?.intent);
+
+  if (moduleName === 'project' && action === 'switch_project') {
+    const target = toText(params.project_name) || toText(params.project_id) || '目标项目';
+    return `将切换到项目「${target}」，是否继续？`;
+  }
+  if (moduleName === 'export' && action === 'export_docx') {
+    return '将触发 DOCX 导出并下载文件，是否继续？';
+  }
+  if (moduleName === 'export' && action === 'export_pdf') {
+    return '将触发 PDF 导出并下载文件，是否继续？';
+  }
+  return `将执行「${label}」，是否继续？`;
+}
+
+function buildClarifyQuestions(routeResult, rawCommand) {
+  const routeQuestions = Array.isArray(routeResult?.clarify_questions) ? routeResult.clarify_questions : [];
+  const questions = [...routeQuestions];
+  const moduleName = toText(routeResult?.intent?.module);
+  const action = toText(routeResult?.intent?.action);
+  const params = routeResult?.params || {};
+  const raw = toText(rawCommand);
+
+  if (moduleName === 'creative' && action === 'edit_story') {
+    if (!toText(params.command_text) && !raw) {
+      questions.push('你想改的是哪一段剧情或角色？');
+    }
+  }
+  if (moduleName === 'video' && action === 'create_task') {
+    if (!toText(params.prompt) && !toText(state.video_lab?.prompt)) {
+      questions.push('请补充视频提示词（想拍什么画面）。');
+    }
+  }
+  if (moduleName === 'video' && action === 'query_task') {
+    if (!toText(params.task_id) && !toText(state.video_lab?.task_id)) {
+      questions.push('请告诉我要查询的 Task ID。');
+    }
+  }
+  if (moduleName === 'project' && action === 'switch_project') {
+    if (!toText(params.project_id) && !toText(params.project_name)) {
+      questions.push('请告诉我要切换到的项目名。');
+    }
+  }
+  return Array.from(new Set(questions.filter(Boolean)));
+}
+
+async function executeGlobalAssistantCommand(commandText, options = {}) {
+  const opts = {
+    source: 'text',
+    outputId: null,
+    setStatus: null,
+    ...options,
+  };
+  const text = toText(commandText);
+  if (!text) {
+    const msg = '请先输入命令。';
+    if (typeof opts.setStatus === 'function') {
+      opts.setStatus(msg, true);
+    }
+    if (opts.outputId) {
+      updateOutput(opts.outputId, msg);
+    }
+    return { ok: false, text: msg, error: 'empty_command' };
+  }
+
+  if (typeof opts.setStatus === 'function') {
+    opts.setStatus('正在理解你的意图...');
+  }
+  const routed = await routeGlobalIntent(text);
+  if (!routed?.ok) {
+    const msg = `路由失败: ${routed?.error || 'unknown'}`;
+    if (typeof opts.setStatus === 'function') {
+      opts.setStatus(msg, true);
+    }
+    return { ok: false, text: msg, error: 'router_failed' };
+  }
+
+  const routeResult = routed.result || {};
+  const confidence = Number(routeResult?.intent?.confidence || 0);
+  const moduleName = toText(routeResult?.intent?.module);
+  const action = toText(routeResult?.intent?.action);
+  const clarifyQuestions = buildClarifyQuestions(routeResult, text);
+  const needsConfirmation = Boolean(routeResult?.safety?.needs_confirmation) || shouldForceConfirmation(routeResult);
+  const confirmMessage = buildConfirmationMessage(routeResult);
+
+  if (moduleName === 'unknown' || action === 'unknown' || confidence < 0.55) {
+    const msg = clarifyQuestions.length
+      ? `我还不能准确执行这条命令，请你补充：\n- ${clarifyQuestions.join('\n- ')}`
+      : '我还不能准确执行这条命令，请换个更具体的说法。';
+    if (typeof opts.setStatus === 'function') {
+      opts.setStatus('意图不够明确，请补充。', true);
+    }
+    return { ok: false, text: msg, error: 'low_confidence' };
+  }
+
+  if (needsConfirmation) {
+    const confirmed = window.confirm(confirmMessage);
+    if (!confirmed) {
+      return { ok: false, text: '已取消本次操作。', error: 'cancelled' };
+    }
+  }
+
+  if (typeof opts.setStatus === 'function') {
+    const label = getIntentActionLabel(routeResult?.intent);
+    opts.setStatus(`已识别为：${label}，正在执行...`);
+  }
+  const executed = await executeRoutedAction(routeResult, text, { source: opts.source, setStatus: opts.setStatus });
+  if (opts.outputId) {
+    updateOutput(opts.outputId, executed.text || '');
+  }
+  return executed;
 }
 
 function hasDataForExport() {
@@ -1042,7 +1535,7 @@ async function createSnapshotFromDialog() {
   if (name === null) {
     return;
   }
-  const description = window.prompt('请输入快照说明：', '') || '';
+  const description = window.prompt('请输入快照说明（可选）：', '') || '';
 
   const data = await fetchJson(`/api/projects/${currentProjectId}/snapshots`, {
     method: 'POST',
@@ -1316,7 +1809,7 @@ async function switchProject(projectId, opts = {}) {
   clearOutputsByPage();
   restoreOutputsOnPageLoad();
   refreshVisualEditors();
-  renderAllReviewLabs();
+  renderReviewLab();
   renderProjectMeta();
   await loadProjects();
   try {
@@ -1642,144 +2135,6 @@ function startVideoPolling() {
   }, VIDEO_POLL_INTERVAL_MS);
 }
 
-function isVideoTaskFinished(status) {
-  return ['SUCCEEDED', 'FAILED', 'CANCELED'].includes(String(status || '').toUpperCase());
-}
-
-function stopLongChainPolling() {
-  if (longChainPollTimer) {
-    clearInterval(longChainPollTimer);
-    longChainPollTimer = null;
-  }
-}
-
-async function runLongChainStep() {
-  if (longChainBusy) {
-    return;
-  }
-
-  const video = getVideoState();
-  const segments = Array.isArray(video.long_segments) ? video.long_segments : [];
-  if (!video.long_chain_by_last_frame || !segments.length) {
-    stopLongChainPolling();
-    return;
-  }
-
-  longChainBusy = true;
-  try {
-    let changed = false;
-
-    for (let i = 0; i < segments.length; i += 1) {
-      const seg = segments[i];
-      if (!seg?.task_id || isVideoTaskFinished(seg.task_status)) {
-        continue;
-      }
-
-      const taskData = await fetchJson(`/api/video/task/${seg.task_id}`, { method: 'GET' });
-      if (!taskData.ok) {
-        updateOutput('video-long-output', `自动续段查询失败: ${taskData.error}\n${taskData.detail || ''}`);
-        return;
-      }
-
-      const output = taskData.result?.output || taskData.result || {};
-      const status = output.task_status || output.status || 'UNKNOWN';
-      const url = output.video_url || output.url || output?.result?.video?.url || '';
-
-      if (seg.task_status !== status) {
-        seg.task_status = status;
-        changed = true;
-      }
-      if (url && seg.video_url !== url) {
-        seg.video_url = url;
-        video.video_url = url;
-        changed = true;
-      }
-
-      // Only one active segment is expected in chain mode.
-      break;
-    }
-
-    for (let i = 1; i < segments.length; i += 1) {
-      const prev = segments[i - 1];
-      const curr = segments[i];
-      if (curr.task_id) {
-        continue;
-      }
-      if (String(prev.task_status || '').toUpperCase() !== 'SUCCEEDED' || !prev.video_url) {
-        continue;
-      }
-
-      updateOutput('video-long-output', `第 ${i} 段已完成，正在截取末帧并创建第 ${i + 1} 段任务...`);
-      const createData = await fetchJson('/api/video/create-next-segment-from-video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          payload: {
-            prev_video_url: prev.video_url,
-            prompt: curr.prompt || '',
-            duration: Number(curr.duration || 10),
-            model: video.long_model || bind('video-model')?.value.trim() || 'viduq3-turbo',
-            size: video.long_size || bind('video-size')?.value.trim() || '1280*720',
-            prompt_extend: video.long_prompt_extend !== false,
-          },
-        }),
-      });
-
-      if (!createData.ok) {
-        updateOutput('video-long-output', `自动续段创建失败: ${createData.error}\n${createData.detail || ''}`);
-        return;
-      }
-
-      const nextOutput = createData.result?.output || createData.result || {};
-      curr.task_id = nextOutput.task_id || nextOutput.request_id || '';
-      curr.task_status = nextOutput.task_status || nextOutput.status || 'PENDING';
-      changed = true;
-
-      if (createData.frame_image_url) {
-        video.image_url = createData.frame_image_url;
-      }
-      updateOutput('video-long-output', `已自动创建第 ${i + 1} 段任务\nTask ID: ${curr.task_id}\n状态: ${curr.task_status}`);
-      break;
-    }
-
-    if (changed) {
-      saveState();
-      renderLongSegmentsList();
-    }
-
-    const hasRunningTask = segments.some((seg) => seg.task_id && !isVideoTaskFinished(seg.task_status));
-    const hasCreatableWaiting = segments.some((seg, idx) => {
-      if (idx === 0 || seg.task_id) {
-        return false;
-      }
-      const prev = segments[idx - 1];
-      return String(prev?.task_status || '').toUpperCase() === 'SUCCEEDED' && Boolean(prev?.video_url);
-    });
-
-    if (!hasRunningTask && !hasCreatableWaiting) {
-      stopLongChainPolling();
-      const hasWaiting = segments.some((seg) => !seg.task_id);
-      if (hasWaiting) {
-        updateOutput('video-long-output', '自动续段已停止：上一段未成功，后续分段未创建。可修正后手动重试。');
-      } else {
-        updateOutput('video-long-output', '长视频自动续段已完成，所有分段任务已结束。');
-      }
-    }
-  } catch (err) {
-    updateOutput('video-long-output', `自动续段异常: ${err.message}`);
-  } finally {
-    longChainBusy = false;
-  }
-}
-
-function startLongChainPolling() {
-  stopLongChainPolling();
-  longChainPollTimer = setInterval(() => {
-    runLongChainStep();
-  }, VIDEO_POLL_INTERVAL_MS);
-  runLongChainStep();
-}
-
 async function runStage(stage, payload, provider = null) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 90000);
@@ -1951,7 +2306,7 @@ function renderRelationshipGraph() {
       if (params.nodes.length > 0) {
         const nodeName = String(params.nodes[0]);
         selectedRelationIndex = null;
-
+        
         if (draftRelationNodes.length === 0 || draftRelationNodes.length === 2) {
           draftRelationNodes = [nodeName];
         } else {
@@ -2023,9 +2378,9 @@ function syncTimelineToState() {
   if (!state.workshop) {
     return;
   }
-
+  
   pushVisualUndo();
-
+  
   const list = bind('timeline-list');
   if (!list) {
     return;
@@ -2082,12 +2437,12 @@ function refreshVisualEditors() {
 function formatStoryResult(result) {
   const sc = result.story_card || result || {};
   const nextQs = result.next_questions || [];
-
+  
   let text = `【一句话故事】\n${sc.logline || '-'}\n\n`;
   text += `【核心冲突】\n${sc.core_conflict || '-'}\n\n`;
   text += `【前三秒钩子】\n${sc.hook || '-'}\n\n`;
   text += `【属性】\n主题：${sc.theme || '-'}\n基调：${sc.tone || '-'}\n结构：${sc.structure_template || '-'}\n结局：${sc.ending_type || '-'}\n\n`;
-
+  
   text += `【结构锚点】\n`;
   text += `銆愮垎娆炬ā鏉裤€慭n${sc.viral_template_name || '未使用'}\n\n`;
   text += `銆愬紑鍦洪挬瀛愮瓥鐣ャ€慭n${sc.opening_hook_strategy || '-'}\n\n`;
@@ -2100,7 +2455,7 @@ function formatStoryResult(result) {
   } else {
     text += '-\n';
   }
-
+  
   text += `\n【建议追问】\n`;
   if (nextQs.length) {
     nextQs.forEach((q) => {
@@ -2192,39 +2547,11 @@ function reviewTargetLabel(target) {
   return '故事引擎';
 }
 
-function clearReviewPanels() {
-  ['story-review-panel', 'workshop-review-panel', 'storyboard-review-panel'].forEach((id) => {
-    const panel = bind(id);
-    if (!panel) {
-      return;
-    }
-    panel.style.display = 'none';
-    panel.innerHTML = '';
-  });
-}
-
-function reviewPanelIdByStage(stage) {
-  if (stage === 'workshop') {
-    return 'workshop-review-panel';
-  }
-  if (stage === 'storyboard') {
-    return 'storyboard-review-panel';
-  }
-  return 'story-review-panel';
-}
-
-function renderAllReviewLabs() {
-  clearReviewPanels();
-  ['story_engine', 'workshop', 'storyboard'].forEach((stage) => {
-    renderReviewLab('', stage);
-  });
-}
-
 async function runStoryReviewFlow(currentStage, { withRewrite = false } = {}) {
   const stage = currentStage || inferReviewStage();
   if (!stage || !state.story_card) {
-    setStageReviewLab(stage || 'story_engine', createEmptyReviewLab(stage || 'story_engine'));
-    renderReviewLab('', stage);
+    state.review_lab = normalizeReviewLab(null);
+    renderReviewLab();
     return;
   }
 
@@ -2234,45 +2561,41 @@ async function runStoryReviewFlow(currentStage, { withRewrite = false } = {}) {
   });
 
   if (!reviewData.ok) {
-    setStageReviewLab(stage, {
-      ...createEmptyReviewLab(stage),
-      last_review_time: new Date().toISOString(),
-    });
-    renderReviewLab(`评分失败：${reviewData.error}`, stage);
+    state.review_lab.latest_review = normalizeReviewLab(null).latest_review;
+    state.review_lab.rewrite_candidates = [];
+    state.review_lab.last_review_stage = stage;
+    state.review_lab.last_review_time = new Date().toISOString();
+    renderReviewLab(`评分失败：${reviewData.error}`);
     return;
   }
 
-  const nextReviewLab = {
-    ...getStageReviewLab(stage),
-    latest_review: normalizeReviewLab({ latest_review: reviewData.result }).latest_review,
-    last_review_stage: stage,
-    last_review_time: new Date().toISOString(),
-  };
+  state.review_lab.latest_review = normalizeReviewLab({ latest_review: reviewData.result }).latest_review;
+  state.review_lab.last_review_stage = stage;
+  state.review_lab.last_review_time = new Date().toISOString();
 
-  if (withRewrite && nextReviewLab.latest_review.low_score_dimensions.length) {
+  if (withRewrite && state.review_lab.latest_review.low_score_dimensions.length) {
     const rewriteData = await runStage('story_rewrite', {
       current_stage: stage,
       project_state: buildReviewProjectState(),
-      review_result: nextReviewLab.latest_review,
+      review_result: state.review_lab.latest_review,
     });
     if (rewriteData.ok) {
-      nextReviewLab.rewrite_candidates = normalizeReviewLab({
+      state.review_lab.rewrite_candidates = normalizeReviewLab({
         rewrite_candidates: rewriteData.result.candidates,
       }).rewrite_candidates;
     } else {
-      nextReviewLab.rewrite_candidates = [];
+      state.review_lab.rewrite_candidates = [];
     }
   } else {
-    nextReviewLab.rewrite_candidates = [];
+    state.review_lab.rewrite_candidates = [];
   }
 
-  setStageReviewLab(stage, nextReviewLab);
   saveState();
-  renderReviewLab('', stage);
+  renderReviewLab();
 }
 
-async function applyReviewCandidate(candidateId, stage) {
-  const candidates = getStageReviewLab(stage).rewrite_candidates || [];
+async function applyReviewCandidate(candidateId) {
+  const candidates = state.review_lab?.rewrite_candidates || [];
   const selected = candidates.find((item) => String(item.id) === String(candidateId));
   if (!selected) {
     return;
@@ -2295,31 +2618,26 @@ async function applyReviewCandidate(candidateId, stage) {
     return;
   }
 
-  setStageReviewLab(stage, {
-    ...getStageReviewLab(stage),
-    rewrite_candidates: [],
-  });
+  state.review_lab.rewrite_candidates = [];
   saveState();
 
   updateOutput('story-output', formatStoryResultV2({ story_card: state.story_card }));
   updateOutput('workshop-output', state.workshop ? formatWorkshopResult(state.workshop) : '');
   updateOutput('storyboard-output', state.storyboard ? formatStoryboardResult(state.storyboard) : '');
   refreshVisualEditors();
-  renderReviewLab('已应用改写版本，正在重新评分...', rerunStage);
+  renderReviewLab('已应用改写版本，正在重新评分...');
   await runStoryReviewFlow(rerunStage, { withRewrite: true });
 }
 
-function renderReviewLab(statusText = '', targetStage = '') {
-  const activeStage = targetStage || inferReviewStage();
-  const reviewLab = getStageReviewLab(activeStage);
-  const panel = bind(reviewPanelIdByStage(activeStage));
+function renderReviewLab(statusText = '') {
+  const panel = bind('review-panel');
   if (!panel) {
     return;
   }
 
+  const reviewLab = normalizeReviewLab(state.review_lab);
   const review = reviewLab.latest_review;
   const candidates = reviewLab.rewrite_candidates || [];
-  const isExpanded = isReviewPanelExpanded(activeStage);
   const hasContent =
     review.summary ||
     review.dimensions.length ||
@@ -2336,8 +2654,8 @@ function renderReviewLab(statusText = '', targetStage = '') {
 
   const dimsHtml = review.dimensions.length
     ? review.dimensions
-      .map(
-        (item) => `
+        .map(
+          (item) => `
             <div class="panel soft" style="padding:10px;">
               <div style="display:flex; justify-content:space-between; gap:12px;">
                 <strong>${item.name}</strong>
@@ -2347,8 +2665,8 @@ function renderReviewLab(statusText = '', targetStage = '') {
               <div class="hint" style="margin-top:4px;">建议：${item.suggestion || '-'}</div>
             </div>
           `,
-      )
-      .join('')
+        )
+        .join('')
     : '<p class="hint">暂无评分结果</p>';
 
   const issuesHtml = review.top_issues.length
@@ -2361,8 +2679,8 @@ function renderReviewLab(statusText = '', targetStage = '') {
 
   const candidateHtml = candidates.length
     ? candidates
-      .map(
-        (item) => `
+        .map(
+          (item) => `
             <article class="panel" style="padding:12px; margin-top:10px;">
               <h4 style="margin-bottom:6px;">${item.title}</h4>
               <div class="hint">应用范围：${reviewTargetLabel(item.target)}</div>
@@ -2372,22 +2690,20 @@ function renderReviewLab(statusText = '', targetStage = '') {
               <button class="secondary" data-review-candidate-id="${item.id}">使用这个版本</button>
             </article>
           `,
-      )
-      .join('')
+        )
+        .join('')
     : '<p class="hint">当前没有自动改稿候选版本。</p>';
 
   panel.style.display = 'block';
   panel.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
       <h3 style="margin:0;">剧本评分器</h3>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button data-review-toggle="1" class="secondary">${isExpanded ? '收起详情' : '展开详情'}</button>
-        ${isExpanded ? '<button data-review-rerun="1" class="secondary">重新评分</button>' : ''}
-      </div>
+      <button id="btn-review-rerun" class="secondary">重新评分</button>
     </div>
     ${statusText ? `<p class="hint" style="margin-top:8px;">${statusText}</p>` : ''}
     <div style="margin-top:10px;"><strong>总分：</strong>${review.overall_score || 0}</div>
     <div class="hint" style="margin-top:6px;">${review.summary || '暂无整体评语'}</div>
+    <div class="grid two" style="margin-top:12px;">${dimsHtml}</div>
     <div class="grid two" style="margin-top:12px;">
       <div>
         <h4 style="margin-bottom:6px;">主要问题</h4>
@@ -2399,42 +2715,20 @@ function renderReviewLab(statusText = '', targetStage = '') {
       </div>
     </div>
     <div style="margin-top:12px;" class="hint">最近评分阶段：${reviewLab.last_review_stage || '-'} | 时间：${reviewLab.last_review_time || '-'}</div>
-    ${isExpanded
-      ? `
-    <div style="margin-top:12px;">
-      <h4 style="margin-bottom:6px;">维度详情</h4>
-      <div class="grid two">${dimsHtml}</div>
-    </div>
     <div style="margin-top:12px;">
       <h4 style="margin-bottom:6px;">自动改稿候选</h4>
       ${candidateHtml}
     </div>
-    `
-      : `
-    <div style="margin-top:12px;" class="hint">
-      已收起详细评分与改稿候选。当前候选数：${candidates.length}
-    </div>
-    `
-    }
   `;
 
-  const toggleBtn = panel.querySelector('[data-review-toggle]');
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => {
-      setReviewPanelExpanded(activeStage, !isExpanded);
-      renderReviewLab(statusText, activeStage);
-    });
-  }
-
-  const rerunBtn = panel.querySelector('[data-review-rerun]');
+  const rerunBtn = bind('btn-review-rerun');
   if (rerunBtn) {
     rerunBtn.addEventListener('click', () => {
-      const rerunStage = reviewLab.last_review_stage || activeStage || inferReviewStage();
-      renderReviewLab('正在重新评分...', rerunStage);
-      runStoryReviewFlow(rerunStage, {
-        withRewrite: stageSupportsRewrite(rerunStage),
+      renderReviewLab('正在重新评分...');
+      runStoryReviewFlow(reviewLab.last_review_stage || inferReviewStage(), {
+        withRewrite: stageSupportsRewrite(reviewLab.last_review_stage || inferReviewStage()),
       }).catch((err) => {
-        renderReviewLab(`重新评分失败：${err.message}`, rerunStage);
+        renderReviewLab(`重新评分失败：${err.message}`);
       });
     });
   }
@@ -2445,8 +2739,8 @@ function renderReviewLab(statusText = '', targetStage = '') {
       if (!candidateId) {
         return;
       }
-      applyReviewCandidate(candidateId, activeStage).catch((err) => {
-        renderReviewLab(`应用改写失败：${err.message}`, activeStage);
+      applyReviewCandidate(candidateId).catch((err) => {
+        renderReviewLab(`应用改写失败：${err.message}`);
       });
     });
   });
@@ -2562,7 +2856,7 @@ function bindWorkshopActions() {
 
       updateOutput('story-output', formatStoryResultV2(data.result));
       renderTaskMeta(data.meta);
-      renderReviewLab('正在评分并生成改稿建议...', 'story_engine');
+      renderReviewLab('正在评分并生成改稿建议...');
       await runStoryReviewFlow('story_engine', { withRewrite: true });
     });
   }
@@ -2654,7 +2948,7 @@ function bindWorkshopActions() {
 
       updateOutput('workshop-output', formatWorkshopResult(state.workshop));
       refreshVisualEditors();
-      renderReviewLab('正在根据最新剧本结构评分...', 'workshop');
+      renderReviewLab('正在根据最新剧本结构评分...');
       await runStoryReviewFlow('workshop', { withRewrite: true });
     });
   }
@@ -2678,7 +2972,7 @@ function bindWorkshopActions() {
       saveState();
 
       updateOutput('storyboard-output', formatStoryboardResult(state.storyboard));
-      renderReviewLab('正在根据最新分镜评分...', 'storyboard');
+      renderReviewLab('正在根据最新分镜评分...');
       await runStoryReviewFlow('storyboard', { withRewrite: true });
     });
   }
@@ -2686,47 +2980,161 @@ function bindWorkshopActions() {
   const btnCommand = bind('btn-command');
   if (btnCommand) {
     btnCommand.addEventListener('click', async () => {
-      updateOutput('command-output', '执行中...');
-      const payload = {
-        command: bind('command')?.value.trim() || '',
-        project_state: {
-          story_card: state.story_card,
-          workshop: state.workshop,
-          storyboard: state.storyboard,
-        },
-      };
+      await executeGlobalCommand(bind('command')?.value.trim() || '', { outputId: 'command-output', source: 'text' });
+    });
+  }
+}
 
-      const data = await runStage('command', payload);
-      if (!data.ok) {
-        updateOutput('command-output', `错误: ${data.error}\n${data.detail || ''}`);
-        return;
-      }
+function initGlobalCommandWidget() {
+  if (!document?.body || bind('global-command-widget')) {
+    return;
+  }
 
-      if (data.result.updated_state) {
-        state.story_card = normalizeStoryCard(data.result.updated_state.story_card) || state.story_card;
-        state.workshop = normalizeWorkshopData(data.result.updated_state.workshop) || state.workshop;
-        state.storyboard = normalizeStoryboardData(data.result.updated_state.storyboard) || state.storyboard;
-        saveState();
-        refreshVisualEditors();
-        const nextStage = inferReviewStage();
-        renderReviewLab('正在根据最新修改重新评分...', nextStage);
-        await runStoryReviewFlow(nextStage, { withRewrite: stageSupportsRewrite(nextStage) });
-      }
+  const root = document.createElement('div');
+  root.id = 'global-command-widget';
+  root.className = 'global-command-widget collapsed';
+  root.innerHTML = `
+    <button type="button" id="global-command-fab" class="global-command-fab" aria-label="语音命令入口">语音</button>
+    <section id="global-command-panel" class="global-command-panel" aria-hidden="true">
+      <header class="global-command-header">
+        <strong>全局语音命令</strong>
+        <button type="button" id="global-command-close" class="global-command-close" aria-label="收起">收起</button>
+      </header>
+      <input id="global-command-input" class="global-command-input" placeholder="例如：将第三个场景改为夜间下雨" />
+      <div class="global-command-actions">
+        <button type="button" id="global-command-run">执行</button>
+        <button type="button" id="global-command-voice" class="secondary">语音输入</button>
+      </div>
+      <div id="global-command-status" class="global-command-status">点击“语音输入”后开始说话</div>
+      <pre id="global-command-output" class="global-command-output"></pre>
+    </section>
+  `;
+  document.body.appendChild(root);
 
-      let cmdText = `【理解命令】\n${data.result.command_understanding || '-'}\n\n`;
-      cmdText += `【一致性检查】\n`;
-      if (data.result.consistency_report && data.result.consistency_report.length) {
-        data.result.consistency_report.forEach(r => cmdText += `- ${r}\n`);
-      } else {
-        cmdText += '-\n';
+  const fab = bind('global-command-fab');
+  const panel = bind('global-command-panel');
+  const closeBtn = bind('global-command-close');
+  const runBtn = bind('global-command-run');
+  const voiceBtn = bind('global-command-voice');
+  const input = bind('global-command-input');
+  const status = bind('global-command-status');
+  const output = bind('global-command-output');
+
+  const setOpen = (open) => {
+    root.classList.toggle('collapsed', !open);
+    root.classList.toggle('expanded', open);
+    if (panel) {
+      panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+    }
+  };
+
+  const setStatus = (text, isError = false) => {
+    if (!status) return;
+    status.textContent = text;
+    status.classList.toggle('error', Boolean(isError));
+  };
+
+  const runCommandFromWidget = async (source = 'text') => {
+    const commandText = toText(input?.value);
+    const result = await executeGlobalAssistantCommand(commandText, {
+      outputId: null,
+      source,
+      setStatus,
+    });
+    if (output) {
+      output.textContent = result.text || '';
+    }
+  };
+
+  if (fab) {
+    fab.addEventListener('click', () => {
+      setOpen(true);
+      input?.focus();
+    });
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => setOpen(false));
+  }
+  if (runBtn) {
+    runBtn.addEventListener('click', async () => {
+      await runCommandFromWidget('text');
+    });
+  }
+  if (input) {
+    input.addEventListener('keydown', async (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        await runCommandFromWidget('text');
       }
-      cmdText += `\n【下一步建议】\n`;
-      if (data.result.suggestions && data.result.suggestions.length) {
-        data.result.suggestions.forEach(s => cmdText += `- ${s}\n`);
-      } else {
-        cmdText += '-\n';
+    });
+  }
+
+  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognitionCtor) {
+    if (voiceBtn) {
+      voiceBtn.disabled = true;
+    }
+    setStatus('当前浏览器不支持语音识别，请使用 Chrome/Edge。', true);
+    return;
+  }
+
+  const recognition = new SpeechRecognitionCtor();
+  recognition.lang = 'zh-CN';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  let listening = false;
+
+  recognition.onstart = () => {
+    listening = true;
+    if (voiceBtn) {
+      voiceBtn.textContent = '停止语音';
+    }
+    setStatus('正在听，请说出修改指令...');
+  };
+
+  recognition.onresult = async (event) => {
+    const transcript = toText(event?.results?.[0]?.[0]?.transcript);
+    if (!transcript) {
+      setStatus('没有识别到有效内容，请再试一次。', true);
+      return;
+    }
+    if (input) {
+      input.value = transcript;
+    }
+    setStatus(`已识别：${transcript}`);
+    await runCommandFromWidget('voice');
+  };
+
+  recognition.onerror = (event) => {
+    const code = event?.error || 'unknown';
+    if (code === 'no-speech') {
+      setStatus('没有检测到语音，请再试一次。', true);
+    } else if (code === 'not-allowed') {
+      setStatus('麦克风权限被拒绝，请允许后重试。', true);
+    } else {
+      setStatus(`语音识别失败：${code}`, true);
+    }
+  };
+
+  recognition.onend = () => {
+    listening = false;
+    if (voiceBtn) {
+      voiceBtn.textContent = '语音输入';
+    }
+  };
+
+  if (voiceBtn) {
+    voiceBtn.addEventListener('click', () => {
+      try {
+        if (listening) {
+          recognition.stop();
+          return;
+        }
+        recognition.start();
+      } catch (err) {
+        setStatus(`无法启动语音识别：${err.message || err}`, true);
       }
-      updateOutput('command-output', cmdText.trim());
     });
   }
 }
@@ -2763,7 +3171,7 @@ function bindVisualActions() {
         setRelationStatus('请输入角色名称。');
         return;
       }
-
+      
       pushVisualUndo();
       state.workshop.characters = state.workshop.characters || [];
       if (!state.workshop.characters.find(c => c.name === charName)) {
@@ -2833,7 +3241,7 @@ function bindVisualActions() {
 
       const from = bind('rel-from-display')?.value.trim() || '';
       const to = bind('rel-to-display')?.value.trim() || '';
-
+      
       pushVisualUndo();
 
       if (selectedRelationIndex !== null && state.workshop.relationships[selectedRelationIndex]) {
@@ -2952,206 +3360,12 @@ function formatTitlePackagingResult(titleLab) {
   return lines.join('\n');
 }
 
-function formatCoverPackagingResult(coverLab) {
-  const data = normalizeCoverLab(coverLab);
-  const lines = [];
-  lines.push('【封面策划总览】');
-  lines.push(data.summary || '-');
-  lines.push('');
-  lines.push(`【当前标题】${data.current_title || '-'}`);
-  lines.push(`【风格偏好】${data.style_preference || '-'}`);
-  lines.push(`【主打点】${data.focus_point || '-'}`);
-  lines.push(`【封面主标题】${data.main_title || '-'}`);
-  lines.push(`【封面副标题】${data.subtitle || '-'}`);
-  lines.push('');
-  lines.push('【封面短句】');
-  if (data.hook_lines.length) {
-    data.hook_lines.forEach((item, index) => {
-      lines.push(`${index + 1}. ${item}`);
-    });
-  } else {
-    lines.push('-');
-  }
-  lines.push('');
-  lines.push(`【视觉方向】${data.visual_direction || '-'}`);
-  lines.push(`【排版建议】${data.layout_direction || '-'}`);
-  lines.push(`【色彩建议】${data.color_palette || '-'}`);
-  lines.push('');
-  lines.push('【文生图提示词】');
-  lines.push(data.image_prompt || '-');
-  if (data.image_task_id || data.image_task_status || data.image_status_message) {
-    lines.push('');
-    lines.push(`任务状态：${data.image_task_status || '-'}`);
-    lines.push(`任务ID：${data.image_task_id || '-'}`);
-    lines.push(`状态说明：${data.image_status_message || '-'}`);
-  }
-  if (data.generated_image_url) {
-    lines.push('');
-    lines.push(`【图片模型】${data.image_model || '-'}`);
-    lines.push(`【图片尺寸】${data.image_size || '-'}`);
-    lines.push(`【已生成封面】${data.generated_image_url}`);
-  }
-  return lines.join('\n');
-}
-
-function wait(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-async function syncCoverImageToProject(imageUrl) {
-  if (!imageUrl || !currentProjectId) {
-    return;
-  }
-
-  currentProjectMeta = currentProjectMeta || {};
-  currentProjectMeta.cover_image = imageUrl;
-  await fetchJson(`/api/projects/${currentProjectId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      cover_image: imageUrl,
-      last_provider: currentProvider,
-    }),
-  });
-  await loadProjects();
-  renderProjectMeta();
-}
-
-async function pollCoverImageTask(taskId, coverLabSnapshot) {
-  const baseCoverLab = normalizeCoverLab(coverLabSnapshot);
-
-  for (let attempt = 1; attempt <= COVER_IMAGE_POLL_MAX_ATTEMPTS; attempt += 1) {
-    if (attempt > 1) {
-      await wait(COVER_IMAGE_POLL_INTERVAL_MS);
-    }
-
-    const queryData = await runStage('cover_image_query', { task_id: taskId });
-    if (!queryData.ok) {
-      return queryData;
-    }
-
-    const result = queryData.result || {};
-    const nextCoverLab = normalizeCoverLab({
-      ...state.cover_lab,
-      ...baseCoverLab,
-      image_task_id: toText(result.task_id) || taskId,
-      image_task_status: toText(result.task_status),
-      image_status_message: toText(result.status_message),
-      image_model: toText(result.model) || baseCoverLab.image_model,
-      image_size: toText(result.size) || baseCoverLab.image_size,
-      generated_image_url: toText(result.image_url) || state.cover_lab?.generated_image_url || '',
-      updated_at: new Date().toISOString(),
-    });
-
-    state.cover_lab = nextCoverLab;
-    saveState();
-    updateOutput('cover-pack-output', formatCoverPackagingResult(nextCoverLab));
-    setCoverImageRunStatus(`正在查询生成结果（第 ${attempt} 次）...`, 'running');
-
-    if (nextCoverLab.generated_image_url) {
-      return { ok: true, result };
-    }
-
-    if (nextCoverLab.image_task_status === 'failed') {
-      return {
-        ok: false,
-        error: nextCoverLab.image_status_message || '封面生成失败',
-        detail: '',
-      };
-    }
-  }
-
-  return {
-    ok: false,
-    error: '封面生成超时，请稍后再试',
-    detail: '',
-  };
-}
-
-function setCoverImageRunStatus(text, mode = 'idle') {
-  const target = bind('cover-image-run-status');
-  if (!target) {
-    return;
-  }
-  target.textContent = text || '未开始生成封面';
-  target.classList.toggle('cover-image-status-running', mode === 'running');
-  target.classList.toggle('cover-image-status-error', mode === 'error');
-}
-
-function setCoverImageButtonBusy(isBusy, text = '生成中...') {
-  const button = bind('btn-cover-image');
-  if (!button) {
-    return;
-  }
-  if (!button.dataset.idleText) {
-    button.dataset.idleText = button.textContent || '一键生成封面';
-  }
-  button.disabled = Boolean(isBusy);
-  button.classList.toggle('is-loading', Boolean(isBusy));
-  button.textContent = isBusy ? text : button.dataset.idleText;
-}
-
-function openCoverImageModal(url, statusText = '') {
-  const modal = bind('cover-image-modal');
-  const image = bind('cover-image-modal-preview');
-  const status = bind('cover-image-modal-status');
-  if (!modal || !image) {
-    return;
-  }
-  if (!url) {
-    setCoverImageRunStatus('还没有可预览的封面', 'error');
-    return;
-  }
-  image.src = url;
-  if (status) {
-    status.textContent = statusText || state.cover_lab?.image_status_message || '封面已生成';
-  }
-  modal.classList.add('show');
-}
-
-function closeCoverImageModal() {
-  const modal = bind('cover-image-modal');
-  if (modal) {
-    modal.classList.remove('show');
-  }
-}
-
-function renderCoverImagePreview(url) {
-  const wrap = bind('cover-image-preview-wrap');
-  const image = bind('cover-image-preview');
-  const previewButton = bind('btn-cover-image-preview');
-  if (!wrap || !image) {
-    return;
-  }
-  if (!url) {
-    wrap.style.display = 'none';
-    image.removeAttribute('src');
-    if (previewButton) {
-      previewButton.style.display = 'none';
-    }
-    return;
-  }
-  wrap.style.display = 'block';
-  image.src = url;
-  if (previewButton) {
-    previewButton.style.display = 'inline-flex';
-  }
-}
-
 function buildExportPayload() {
   return {
     project: currentProjectMeta ? { ...currentProjectMeta } : null,
     current_provider: currentProvider,
     exported_at: new Date().toISOString(),
     story_card: normalizeStoryCard(state.story_card),
-    cover_lab: normalizeCoverLab({
-      ...state.cover_lab,
-      current_title: bind('current-title-input')?.value || state.cover_lab?.current_title || '',
-      style_preference: bind('cover-style-input')?.value || state.cover_lab?.style_preference || '',
-      focus_point: bind('cover-focus-input')?.value || state.cover_lab?.focus_point || '',
-    }),
     title_lab: normalizeTitleLab({
       ...state.title_lab,
       current_title: bind('current-title-input')?.value || state.title_lab?.current_title || '',
@@ -3179,40 +3393,10 @@ function restoreOutputsOnPageLoad() {
   if (bind('current-title-input')) {
     bind('current-title-input').value = state.title_lab?.current_title || '';
   }
-  if (bind('cover-style-input')) {
-    bind('cover-style-input').value = state.cover_lab?.style_preference || '';
-  }
-  if (bind('cover-focus-input')) {
-    bind('cover-focus-input').value = state.cover_lab?.focus_point || '';
-  }
   if (bind('title-pack-output') && state.title_lab && state.title_lab.title_suggestions?.length) {
     updateOutput('title-pack-output', formatTitlePackagingResult(state.title_lab));
   } else if (bind('title-pack-output')) {
     updateOutput('title-pack-output', '');
-  }
-  if (
-    bind('cover-pack-output')
-    && state.cover_lab
-    && (
-      state.cover_lab.summary
-      || state.cover_lab.image_prompt
-      || state.cover_lab.image_task_id
-      || state.cover_lab.generated_image_url
-    )
-  ) {
-    updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
-  } else if (bind('cover-pack-output')) {
-    updateOutput('cover-pack-output', '');
-  }
-  renderCoverImagePreview(state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image || '');
-  if (bind('cover-image-run-status')) {
-    if (state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image) {
-      setCoverImageRunStatus('封面已生成，可点击查看封面');
-    } else if (state.cover_lab?.image_task_id) {
-      setCoverImageRunStatus(`最近任务状态：${state.cover_lab.image_task_status || '未知'}`);
-    } else {
-      setCoverImageRunStatus('未开始生成封面');
-    }
   }
 
   const video = getVideoState();
@@ -3256,11 +3440,7 @@ function restoreOutputsOnPageLoad() {
   }
 
   if (bind('video-long-output') && video.long_segments && video.long_segments.length) {
-    if (video.long_chain_by_last_frame) {
-      updateOutput('video-long-output', '已检测到长视频自动续段任务，系统会在上一段完成后自动创建下一段。');
-    } else {
-      updateOutput('video-long-output', '已检测到长视频拆段任务，可在下方列表中逐段查询和播放。');
-    }
+    updateOutput('video-long-output', '已检测到长视频拆段任务，可在下方列表中逐段查询和播放。');
   }
 
   if (
@@ -3270,16 +3450,6 @@ function restoreOutputsOnPageLoad() {
     !['SUCCEEDED', 'FAILED', 'CANCELED'].includes(video.task_status || '')
   ) {
     startVideoPolling();
-  }
-
-  if (
-    bind('video-auto-poll') &&
-    video.auto_poll &&
-    video.long_chain_by_last_frame &&
-    Array.isArray(video.long_segments) &&
-    video.long_segments.length
-  ) {
-    startLongChainPolling();
   }
 
   renderLongSegmentsList();
@@ -3436,83 +3606,6 @@ ${data.detail || ''}`);
   });
 }
 
-function setContentPlayerStatus(text) {
-  const status = bind('content-player-status');
-  if (status) {
-    status.textContent = text || '内容预览';
-  }
-}
-
-function closeContentPlayerModal() {
-  const modal = bind('content-player-modal');
-  if (modal) {
-    modal.classList.remove('show');
-    modal.setAttribute('aria-hidden', 'true');
-  }
-  setContentPlayerStatus('内容预览');
-}
-
-function openContentPlayerModal(sourceId, titleText = '') {
-  const source = bind(sourceId);
-  const modal = bind('content-player-modal');
-  const textNode = bind('content-player-text');
-  const body = bind('content-player-body');
-  const title = bind('content-player-title');
-
-  if (!source || !modal || !textNode || !body) {
-    return;
-  }
-
-  const content = String(source.textContent || '').trim();
-  if (!content) {
-    alert('当前没有可预览内容，请先生成结果。');
-    return;
-  }
-
-  if (title) {
-    title.textContent = titleText || '内容预览播放';
-  }
-  textNode.textContent = content;
-  body.scrollTop = 0;
-  modal.classList.add('show');
-  modal.setAttribute('aria-hidden', 'false');
-  setContentPlayerStatus('已加载预览内容');
-}
-
-function bindContentPlayerActions() {
-  const modal = bind('content-player-modal');
-  if (!modal) {
-    return;
-  }
-
-  document.querySelectorAll('[data-open-content-player]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const sourceId = btn.getAttribute('data-open-content-player') || '';
-      const titleText = btn.getAttribute('data-player-title') || '内容预览播放';
-      openContentPlayerModal(sourceId, titleText);
-    });
-  });
-
-  const btnClose = bind('btn-content-player-close');
-  if (btnClose) {
-    btnClose.addEventListener('click', () => {
-      closeContentPlayerModal();
-    });
-  }
-
-  modal.addEventListener('click', (event) => {
-    if (event.target === modal) {
-      closeContentPlayerModal();
-    }
-  });
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && modal.classList.contains('show')) {
-      closeContentPlayerModal();
-    }
-  });
-}
-
 async function fetchJson(url, options) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 90000);
@@ -3557,55 +3650,7 @@ function bindExportActions() {
         ...state.title_lab,
         current_title: currentTitleInput.value,
       });
-      state.cover_lab = normalizeCoverLab({
-        ...state.cover_lab,
-        current_title: currentTitleInput.value,
-      });
       saveState();
-    });
-  }
-
-  const coverStyleInput = bind('cover-style-input');
-  if (coverStyleInput) {
-    coverStyleInput.addEventListener('input', () => {
-      state.cover_lab = normalizeCoverLab({
-        ...state.cover_lab,
-        style_preference: coverStyleInput.value,
-      });
-      saveState();
-    });
-  }
-
-  const coverFocusInput = bind('cover-focus-input');
-  if (coverFocusInput) {
-    coverFocusInput.addEventListener('input', () => {
-      state.cover_lab = normalizeCoverLab({
-        ...state.cover_lab,
-        focus_point: coverFocusInput.value,
-      });
-      saveState();
-    });
-  }
-
-  const coverPreviewButton = bind('btn-cover-image-preview');
-  if (coverPreviewButton) {
-    coverPreviewButton.addEventListener('click', () => {
-      const imageUrl = state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image || '';
-      openCoverImageModal(imageUrl, state.cover_lab?.image_status_message || '封面已生成');
-    });
-  }
-
-  const coverModalCloseButton = bind('btn-cover-image-modal-close');
-  if (coverModalCloseButton) {
-    coverModalCloseButton.addEventListener('click', closeCoverImageModal);
-  }
-
-  const coverModal = bind('cover-image-modal');
-  if (coverModal) {
-    coverModal.addEventListener('click', (event) => {
-      if (event.target === coverModal) {
-        closeCoverImageModal();
-      }
     });
   }
 
@@ -3638,182 +3683,6 @@ function bindExportActions() {
       });
       saveState();
       updateOutput('title-pack-output', formatTitlePackagingResult(state.title_lab));
-    });
-  }
-
-  const btnCoverPack = bind('btn-cover-packaging');
-  if (btnCoverPack) {
-    btnCoverPack.addEventListener('click', async () => {
-      if (!hasDataForExport()) {
-        updateOutput('cover-pack-output', '暂无可分析内容，请先生成故事、剧本或分镜。');
-        return;
-      }
-
-      updateOutput('cover-pack-output', '正在生成短剧封面策划...');
-      const recommendedTitle =
-        (state.title_lab?.title_suggestions || []).find((item) => item.id === state.title_lab?.recommended_title_id)?.title
-        || '';
-      const payload = {
-        project: currentProjectMeta ? { ...currentProjectMeta } : null,
-        current_title:
-          bind('current-title-input')?.value?.trim()
-          || recommendedTitle
-          || state.cover_lab?.current_title
-          || '',
-        style_preference: bind('cover-style-input')?.value?.trim() || '',
-        focus_point: bind('cover-focus-input')?.value?.trim() || '',
-        story_card: normalizeStoryCard(state.story_card),
-        workshop: normalizeWorkshopData(state.workshop),
-        storyboard: normalizeStoryboardData(state.storyboard),
-      };
-      const data = await runStage('cover_packaging', payload);
-      if (!data.ok) {
-        updateOutput('cover-pack-output', `错误: ${data.error}\n${data.detail || ''}`);
-        return;
-      }
-
-      state.cover_lab = normalizeCoverLab({
-        ...data.result,
-        current_title: bind('current-title-input')?.value?.trim() || data.result.current_title || '',
-        style_preference: bind('cover-style-input')?.value?.trim() || data.result.style_preference || '',
-        focus_point: bind('cover-focus-input')?.value?.trim() || data.result.focus_point || '',
-        generated_image_url: state.cover_lab?.generated_image_url || '',
-        image_model: state.cover_lab?.image_model || '',
-        image_size: state.cover_lab?.image_size || '',
-        image_task_id: state.cover_lab?.image_task_id || '',
-        image_task_status: state.cover_lab?.image_task_status || '',
-        image_status_message: state.cover_lab?.image_status_message || '',
-        updated_at: new Date().toISOString(),
-      });
-      saveState();
-      updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
-      renderCoverImagePreview(state.cover_lab.generated_image_url || currentProjectMeta?.cover_image || '');
-    });
-  }
-
-  const btnCoverImage = bind('btn-cover-image');
-  if (btnCoverImage) {
-    btnCoverImage.addEventListener('click', async () => {
-      if (!hasDataForExport()) {
-        updateOutput('cover-pack-output', '暂无可分析内容，请先生成故事、剧本或分镜。');
-        return;
-      }
-
-      setCoverImageButtonBusy(true, '生成中...');
-      setCoverImageRunStatus('正在准备封面生成任务...', 'running');
-      try {
-        let coverLab = normalizeCoverLab(state.cover_lab);
-        if (!coverLab.image_prompt) {
-          setCoverImageRunStatus('正在先生成封面策划...', 'running');
-          updateOutput('cover-pack-output', '正在先生成封面策划...');
-          const recommendedTitle =
-            (state.title_lab?.title_suggestions || []).find((item) => item.id === state.title_lab?.recommended_title_id)?.title
-            || '';
-          const packagingPayload = {
-            project: currentProjectMeta ? { ...currentProjectMeta } : null,
-            current_title:
-              bind('current-title-input')?.value?.trim()
-              || recommendedTitle
-              || state.cover_lab?.current_title
-              || '',
-            style_preference: bind('cover-style-input')?.value?.trim() || '',
-            focus_point: bind('cover-focus-input')?.value?.trim() || '',
-            story_card: normalizeStoryCard(state.story_card),
-            workshop: normalizeWorkshopData(state.workshop),
-            storyboard: normalizeStoryboardData(state.storyboard),
-          };
-          const packagingData = await runStage('cover_packaging', packagingPayload);
-          if (!packagingData.ok) {
-            updateOutput('cover-pack-output', `错误: ${packagingData.error}\n${packagingData.detail || ''}`);
-            return;
-          }
-          state.cover_lab = normalizeCoverLab({
-            ...packagingData.result,
-            current_title: packagingPayload.current_title,
-            style_preference: packagingPayload.style_preference,
-            focus_point: packagingPayload.focus_point,
-            generated_image_url: state.cover_lab?.generated_image_url || '',
-            image_model: state.cover_lab?.image_model || '',
-            image_size: state.cover_lab?.image_size || '',
-            image_task_id: state.cover_lab?.image_task_id || '',
-            image_task_status: state.cover_lab?.image_task_status || '',
-            image_status_message: state.cover_lab?.image_status_message || '',
-            updated_at: new Date().toISOString(),
-          });
-          saveState();
-          coverLab = normalizeCoverLab(state.cover_lab);
-          updateOutput('cover-pack-output', formatCoverPackagingResult(coverLab));
-        }
-
-        updateOutput('cover-pack-output', `${formatCoverPackagingResult(coverLab)}\n\n正在根据封面策划生成图像...`);
-        setCoverImageRunStatus('正在提交封面生成任务...', 'running');
-        const imageData = await runStage('cover_image_generate', {
-          image_prompt: coverLab.image_prompt,
-        });
-        if (!imageData.ok) {
-          setCoverImageRunStatus(`生成失败：${imageData.error}`, 'error');
-          updateOutput('cover-pack-output', `错误: ${imageData.error}\n${imageData.detail || ''}`);
-          return;
-        }
-
-        let imageUrl = toText(imageData.result?.image_url);
-        const imageTaskId = toText(imageData.result?.task_id);
-        if (imageTaskId) {
-          state.cover_lab = normalizeCoverLab({
-            ...state.cover_lab,
-            image_model: toText(imageData.result?.model) || state.cover_lab?.image_model || '',
-            image_size: toText(imageData.result?.size) || state.cover_lab?.image_size || '',
-            image_task_id: imageTaskId,
-            image_task_status: toText(imageData.result?.task_status) || (imageUrl ? 'succeed' : 'submitted'),
-            image_status_message: '',
-            updated_at: new Date().toISOString(),
-          });
-          saveState();
-          setCoverImageRunStatus(`任务已创建：${imageTaskId}，正在生成...`, 'running');
-        }
-        if (!imageUrl && imageTaskId) {
-          updateOutput('cover-pack-output', `${formatCoverPackagingResult(state.cover_lab)}\n\n正在等待封面生成完成...`);
-          const pollData = await pollCoverImageTask(imageTaskId, state.cover_lab);
-          if (!pollData.ok) {
-            setCoverImageRunStatus(`生成失败：${pollData.error}`, 'error');
-            updateOutput('cover-pack-output', `错误: ${pollData.error}\n${pollData.detail || ''}`);
-            return;
-          }
-
-          imageUrl = toText(pollData.result?.image_url) || state.cover_lab.generated_image_url;
-          if (!imageUrl) {
-            updateOutput('cover-pack-output', '错误: 图片任务已完成，但没有返回可用图片地址');
-            return;
-          }
-        }
-        if (!imageUrl) {
-          updateOutput('cover-pack-output', '错误: 图片接口未返回可用图片地址');
-          return;
-        }
-
-        state.cover_lab = normalizeCoverLab({
-          ...state.cover_lab,
-          generated_image_url: imageUrl,
-          image_model: toText(imageData.result?.model) || state.cover_lab?.image_model || '',
-          image_size: toText(imageData.result?.size) || state.cover_lab?.image_size || '',
-          image_task_status: 'succeed',
-          image_status_message: '封面已生成并同步到当前项目',
-          updated_at: new Date().toISOString(),
-        });
-        saveState();
-
-        await syncCoverImageToProject(imageUrl);
-
-        updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
-        renderCoverImagePreview(imageUrl);
-        openCoverImageModal(imageUrl, '封面生成成功，已同步到当前项目');
-        setCoverImageRunStatus('封面生成成功，已同步到当前项目');
-      } catch (err) {
-        updateOutput('cover-pack-output', `错误: ${err.message}`);
-        setCoverImageRunStatus(`生成失败：${err.message}`, 'error');
-      } finally {
-        setCoverImageButtonBusy(false);
-      }
     });
   }
 
@@ -4371,7 +4240,6 @@ function bindVideoActions() {
         segment_duration: segmentDuration,
         prompt_extend: true,
         provider: currentProvider,
-        chain_by_last_frame: true,
       };
       payload.video_mode = detectVideoMode(payload.image_url, payload.start_image_url, payload.end_image_url);
 
@@ -4398,10 +4266,6 @@ function bindVideoActions() {
           long_segments: data.result?.segments || [],
           total_duration: data.result?.total_duration || totalDuration,
           filename_prefix: bind('video-filename-prefix')?.value.trim() || '',
-          long_chain_by_last_frame: data.result?.chain_by_last_frame === true,
-          long_model: data.result?.model || model,
-          long_size: data.result?.size || size,
-          long_prompt_extend: data.result?.prompt_extend !== false,
         });
         const video = resetVideoRunState({ preservePrompt: true, preserveScript: true, preserveSegments: false });
         video.prompt = normalizedVideo.prompt;
@@ -4411,11 +4275,6 @@ function bindVideoActions() {
         video.long_segments = normalizedVideo.long_segments;
         video.total_duration = normalizedVideo.total_duration;
         video.filename_prefix = normalizedVideo.filename_prefix;
-        video.long_chain_by_last_frame = normalizedVideo.long_chain_by_last_frame;
-        video.long_model = normalizedVideo.long_model;
-        video.long_size = normalizedVideo.long_size;
-        video.long_prompt_extend = normalizedVideo.long_prompt_extend;
-        video.auto_poll = Boolean(bind('video-auto-poll')?.checked);
         saveState();
 
         if (bind('video-task-output')) updateOutput('video-task-output', '');
@@ -4426,18 +4285,11 @@ function bindVideoActions() {
           video.long_segments.forEach((segment) => {
             text += `\n- 第${segment.index}段: 时长 ${segment.duration} 秒, Task ID: ${segment.task_id || '-'}\n  提示词: ${String(segment.prompt || '').slice(0, 120)}...`;
           });
-          if (video.long_chain_by_last_frame) {
-            text += '\n\n已开启自动续段：第1段完成后，会自动截取末帧并创建下一段任务。';
-          } else {
-            text += '\n\n可以使用下方“查询任务状态”按 Task ID 查询单段状态，或在控制台查看任务详情。';
-          }
+          text += '\n\n可以使用下方“查询任务状态”按 Task ID 查询单段状态，或在控制台查看任务详情。';
         }
 
         updateOutput('video-long-output', text);
         renderLongSegmentsList();
-        if (video.long_chain_by_last_frame && video.auto_poll) {
-          startLongChainPolling();
-        }
       } catch (err) {
         updateOutput('video-long-output', `错误: ${err.message}`);
       }
@@ -4459,11 +4311,8 @@ function bindVideoActions() {
       saveState();
       if (!video.auto_poll) {
         stopVideoPolling(false);
-        stopLongChainPolling();
       } else if (video.task_id && !['SUCCEEDED', 'FAILED', 'CANCELED'].includes(video.task_status || '')) {
         startVideoPolling();
-      } else if (video.long_chain_by_last_frame && (video.long_segments || []).length) {
-        startLongChainPolling();
       }
     });
   }
@@ -4472,7 +4321,6 @@ function bindVideoActions() {
   if (btnStopPoll) {
     btnStopPoll.addEventListener('click', () => {
       stopVideoPolling(true);
-      stopLongChainPolling();
     });
   }
 }
@@ -4485,15 +4333,64 @@ async function initProjectContext() {
   }
 }
 
+function renderTaskMeta(meta) {
+  const panel = bind('task-meta-panel');
+  const content = bind('task-meta-content');
+  if (!panel || !content || !meta) {
+    return;
+  }
+
+  const formatCost = (cost) => {
+    if (typeof cost === 'number') {
+      return `¥${cost.toFixed(4)}`;
+    }
+    return cost || '-';
+  };
+
+  const formatDuration = (duration) => {
+    if (typeof duration === 'number') {
+      return `${duration.toFixed(1)}秒`;
+    }
+    return duration || '-';
+  };
+
+  const items = [
+    { label: '预估成本', value: formatCost(meta.estimated_cost) },
+    { label: '实际成本', value: formatCost(meta.actual_cost) },
+    { label: '重试次数', value: meta.retry_count || 0 },
+    { label: '主模型', value: meta.primary_model || '-' },
+    { label: '最终模型', value: meta.final_model || '-' },
+    { label: '是否降级', value: meta.fallback_triggered ? '是' : '否' },
+    { label: '预估时长', value: formatDuration(meta.estimated_duration) },
+  ];
+
+  content.innerHTML = items
+    .map((item) => `<div class="meta-item"><span class="meta-label">${item.label}:</span> <span class="meta-value">${item.value}</span></div>`)
+    .join('');
+  panel.style.display = 'block';
+}
+
+function removeLegacyGlobalCommandPanel() {
+  const input = bind('command');
+  if (!input) {
+    return;
+  }
+  const section = input.closest('section.panel');
+  if (section) {
+    section.remove();
+  }
+}
+
 async function initApp() {
+  removeLegacyGlobalCommandPanel();
   bindProjectDrawerActions();
   initProjectDrawerDrag();
   bindEditProjectActions();
   bindWorkshopActions();
-  bindContentPlayerActions();
   bindVisualActions();
   bindExportActions();
   bindVideoActions();
+  initGlobalCommandWidget();
 
   await initProjectContext();
   await loadStoryTemplates();
@@ -4521,42 +4418,3 @@ window.addEventListener('beforeunload', () => {
 });
 
 initApp();
-
-function renderTaskMeta(meta) {
-  const panel = bind('task-meta-panel');
-  if (!panel || !meta) {
-    return;
-  }
-
-  const formatCost = (cost) => {
-    if (typeof cost === 'number') {
-      return `¥${cost.toFixed(4)}`;
-    }
-    return cost || '-';
-  };
-
-  const formatDuration = (duration) => {
-    if (typeof duration === 'number') {
-      return `${duration.toFixed(1)}秒`;
-    }
-    return duration || '-';
-  };
-
-  const items = [
-    { label: '预估成本', value: formatCost(meta.estimated_cost) },
-    { label: '实际成本', value: formatCost(meta.actual_cost) },
-    { label: '重试次数', value: meta.retry_count || 0 },
-    { label: '主模型', value: meta.primary_model || '-' },
-    { label: '最终模型', value: meta.final_model || '-' },
-    { label: '是否降级', value: meta.fallback_triggered ? '是' : '否' },
-    { label: '预估时长', value: formatDuration(meta.estimated_duration) },
-    { label: '实际时长', value: formatDuration(meta.actual_duration) },
-  ];
-
-  const html = items
-    .map((item) => `<div class="meta-item"><span class="meta-label">${item.label}:</span> <span class="meta-value">${item.value}</span></div>`)
-    .join('');
-
-  panel.innerHTML = html;
-  panel.style.display = 'block';
-}
