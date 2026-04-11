@@ -1,193 +1,199 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>创作工坊 - AI短剧创作智能体</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="/static/style.css?v=20260409_review_2" />
-  </head>
-  <body>
-    <div class="bg-shape bg-shape-1"></div>
-    <div class="bg-shape bg-shape-2"></div>
 
-    <button id="btn-project-drawer" class="project-drawer-toggle" title="管理项目" aria-label="管理项目">
-      项
-    </button>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>创作工坊 - AI短剧创作智能体</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=20260409_review_2" />
+</head>
 
-    <aside id="project-drawer" class="project-drawer" aria-hidden="true">
-      <div class="project-drawer-head">
-        <h3>项目管理</h3>
-        <button id="btn-project-drawer-close" class="project-drawer-close">关闭</button>
-      </div>
+<body>
+  <div class="bg-shape bg-shape-1"></div>
+  <div class="bg-shape bg-shape-2"></div>
 
-      <div class="project-drawer-tools">
-        <button id="btn-new-project">新建项目</button>
-        <button id="btn-delete-project" class="danger">删除当前项目</button>
-        <button id="btn-duplicate-project" class="secondary">复制当前项目</button>
-        <button id="btn-save-snapshot" class="secondary">保存快照</button>
-      </div>
+  <button id="btn-project-drawer" class="project-drawer-toggle" title="管理项目" aria-label="管理项目">
+    项
+  </button>
 
-      <div id="project-current-meta" class="project-current-meta">
-        <p class="hint">当前项目信息将在这里显示。</p>
-      </div>
-
-      <div id="project-save-status" class="project-save-status hint"></div>
-
-      <div id="project-list" class="project-list"></div>
-
-      <section class="project-snapshot-panel">
-        <div class="project-snapshot-head">
-          <h4>项目快照</h4>
-          <button id="btn-refresh-snapshots" class="secondary">刷新</button>
-        </div>
-        <div id="project-snapshot-status" class="hint"></div>
-        <div id="project-snapshot-list" class="project-snapshot-list">
-          <p class="hint">暂无快照</p>
-        </div>
-      </section>
-    </aside>
-
-    <div id="edit-project-modal" class="edit-project-modal">
-      <div class="edit-project-dialog">
-        <h3>编辑项目信息</h3>
-        <form class="edit-project-form" id="edit-project-form">
-          <div class="form-group">
-            <label for="edit-project-name">项目名称</label>
-            <input type="text" id="edit-project-name" placeholder="输入项目名称" required>
-          </div>
-          <div class="form-group">
-            <label for="edit-project-creator">创建人</label>
-            <input type="text" id="edit-project-creator" placeholder="输入创建人名称">
-          </div>
-          <div class="form-group">
-            <label for="edit-project-description">项目描述</label>
-            <textarea id="edit-project-description" placeholder="项目描述示例：都市悬疑 / 情感反转 / 成长励志"></textarea>
-          </div>
-          <div class="edit-project-actions">
-            <button type="button" class="btn-cancel" id="btn-edit-cancel">取消</button>
-            <button type="button" class="btn-save" id="btn-edit-save">保存</button>
-          </div>
-        </form>
-      </div>
+  <aside id="project-drawer" class="project-drawer" aria-hidden="true">
+    <div class="project-drawer-head">
+      <h3>项目管理</h3>
+      <button id="btn-project-drawer-close" class="project-drawer-close">关闭</button>
     </div>
 
-    <main class="container">
-      <nav class="top-nav">
-        <a href="/" class="brand" aria-label="AIT 首页">
-          <span class="brand-mark" aria-hidden="true">AIT</span>
-          <span class="brand-text">AIT 创作引擎</span>
-        </a>
-        <div class="nav-links">
-          <a class="active" href="/studio">创作工坊</a>
-          <a href="/visual">可视化编辑</a>
-          <a href="/export-center">导出中心</a>
-          <a href="/video-lab">视频实验室</a>
+    <div class="project-drawer-tools">
+      <button id="btn-new-project">新建项目</button>
+      <button id="btn-delete-project" class="danger">删除当前项目</button>
+      <button id="btn-duplicate-project" class="secondary">复制当前项目</button>
+      <button id="btn-save-snapshot" class="secondary">保存快照</button>
+    </div>
+
+    <div id="project-current-meta" class="project-current-meta">
+      <p class="hint">当前项目信息将在这里显示。</p>
+    </div>
+
+    <div id="project-save-status" class="project-save-status hint"></div>
+
+    <div id="project-list" class="project-list"></div>
+
+    <section class="project-snapshot-panel">
+      <div class="project-snapshot-head">
+        <h4>项目快照</h4>
+        <button id="btn-refresh-snapshots" class="secondary">刷新</button>
+      </div>
+      <div id="project-snapshot-status" class="hint"></div>
+      <div id="project-snapshot-list" class="project-snapshot-list">
+        <p class="hint">暂无快照</p>
+      </div>
+    </section>
+  </aside>
+
+  <div id="edit-project-modal" class="edit-project-modal">
+    <div class="edit-project-dialog">
+      <h3>编辑项目信息</h3>
+      <form class="edit-project-form" id="edit-project-form">
+        <div class="form-group">
+          <label for="edit-project-name">项目名称</label>
+          <input type="text" id="edit-project-name" placeholder="输入项目名称" required>
         </div>
-      </nav>
+        <div class="form-group">
+          <label for="edit-project-creator">创建人</label>
+          <input type="text" id="edit-project-creator" placeholder="输入创建人名称">
+        </div>
+        <div class="form-group">
+          <label for="edit-project-description">项目描述</label>
+          <textarea id="edit-project-description" placeholder="输入项目描述（可选）"></textarea>
+        </div>
+        <div class="edit-project-actions">
+          <button type="button" class="btn-cancel" id="btn-edit-cancel">取消</button>
+          <button type="button" class="btn-save" id="btn-edit-save">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
-      <header class="hero compact">
-        <h1>创作工坊</h1>
-        <p>完成从灵感到剧情节点的核心生成，数据会自动按项目保存。</p>
-      </header>
+  <main class="container">
+    <nav class="top-nav">
+      <a href="/" class="brand" aria-label="AIT 首页">
+        <span class="brand-mark" aria-hidden="true">AIT</span>
+        <span class="brand-text">AIT 创作引擎</span>
+      </a>
+      <div class="nav-links">
+        <a class="active" href="/studio">创作工坊</a>
+        <a href="/visual">可视化编辑</a>
+        <a href="/export-center">导出中心</a>
+        <a href="/video-lab">视频实验室</a>
+      </div>
+    </nav>
 
-      <section class="panel soft">
-        <div class="grid two">
-          <div>
-            <label for="provider-selector" style="display:block; margin-bottom:8px; font-weight:600;">选择 AI 模型</label>
-            <select id="provider-selector"></select>
+    <header class="hero compact">
+      <h1>创作工坊</h1>
+      <p>完成从灵感到剧情节点的核心生成，数据会自动按项目保存。</p>
+    </header>
+
+    <section class="panel soft">
+      <div class="grid two">
+        <div>
+          <label for="provider-selector" style="display:block; margin-bottom:8px; font-weight:600;">选择 AI 模型</label>
+          <select id="provider-selector"></select>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <span id="provider-display" style="color:var(--muted);"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>第一层：故事引擎</h2>
+        <button type="button" class="secondary section-preview-btn" data-open-content-player="story-output" data-player-title="故事引擎预览">预览</button>
+      </div>
+      <div class="grid two">
+        <textarea id="idea" placeholder="一句话创意，例如：一个关于时间循环的外卖员"></textarea>
+        <div class="mini-form">
+          <select id="story-template-select">
+            <option value="">不使用模板（自由发挥）</option>
+          </select>
+          <div id="story-template-summary" class="hint"
+            style="min-height: 88px; white-space: pre-line; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.6); border: 1px solid rgba(0,0,0,0.06);">
           </div>
-          <div style="display:flex; align-items:center;">
-            <span id="provider-display" style="color:var(--muted);"></span>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="section-head">
-          <h2>第一层：故事引擎</h2>
-          <button type="button" class="secondary section-preview-btn" data-open-content-player="story-output" data-player-title="故事引擎预览">预览</button>
-        </div>
-        <div class="grid two">
-          <textarea id="idea" placeholder="一句话创意，例如：一个关于时间循环的外卖员"></textarea>
-          <div class="mini-form">
-            <select id="story-template-select">
-              <option value="">不使用模板（自由发挥）</option>
-            </select>
-            <div id="story-template-summary" class="hint" style="min-height: 88px; white-space: pre-line; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.6); border: 1px solid rgba(0,0,0,0.06);"></div>
-            <input id="theme" placeholder="主题偏好示例：身份反转 / 亲情救赎 / 职场博弈" />
-            <input id="tone" placeholder="情绪基调示例：冷感克制 / 高燃逆袭 / 轻喜治愈" />
-            <input id="structure" placeholder="结构偏好示例：三幕式 / 多线并行 / 悬念递进" />
-            <div class="grid two">
-              <button id="btn-story">生成故事卡</button>
-              <button id="btn-story-compare" style="background: linear-gradient(135deg, #4a90e2, #007bff);">模型对比</button>
-            </div>
-          </div>
-        </div>
-        <pre id="story-output" class="output"></pre>
-        <div id="story-review-panel" class="panel soft" style="margin-top:12px; display:none;"></div>
-      </section>
-
-      <section class="panel" id="compare-panel" style="display:none;">
-        <h2>模型对比结果</h2>
-        <div id="compare-results" class="grid two"></div>
-      </section>
-
-      <section class="panel">
-        <div class="section-head">
-          <h2>第二层：剧本工坊</h2>
-          <button type="button" class="secondary section-preview-btn" data-open-content-player="workshop-output" data-player-title="剧本工坊预览">预览</button>
-        </div>
-        <div class="grid two">
-          <textarea id="role-req" placeholder="角色要求，例如：主角是表面冷漠但内心善良的医生"></textarea>
-          <textarea id="plot-req" placeholder="情节要求，例如：中段要有误会反转"></textarea>
-        </div>
-        <button id="btn-workshop">生成角色与情节</button>
-        <pre id="workshop-output" class="output"></pre>
-        <div id="workshop-review-panel" class="panel soft" style="margin-top:12px; display:none;"></div>
-      </section>
-
-      <section class="panel">
-        <div class="section-head">
-          <h2>第三层：分镜工厂（基础）</h2>
-          <button type="button" class="secondary section-preview-btn" data-open-content-player="storyboard-output" data-player-title="分镜工厂预览">预览</button>
-        </div>
-        <div class="grid two">
-          <input id="visual-style" placeholder="视觉风格，例如：冷色悬疑、快节奏剪辑" />
-          <button id="btn-storyboard">生成分镜脚本</button>
-        </div>
-        <pre id="storyboard-output" class="output"></pre>
-        <div id="storyboard-review-panel" class="panel soft" style="margin-top:12px; display:none;"></div>
-      </section>
-
-      <section class="panel">
-        <h2>全局智能指令</h2>
-        <div class="grid two">
-          <input id="command" placeholder="例如：/将第三个场景改为夜间下雨" />
-          <button id="btn-command">执行命令</button>
-        </div>
-        <pre id="command-output" class="output"></pre>
-      </section>
-
-      <div id="content-player-modal" class="content-player-modal" aria-hidden="true">
-        <div class="content-player-dialog" role="dialog" aria-modal="true" aria-labelledby="content-player-title">
-          <div class="content-player-head">
-            <h3 id="content-player-title">内容预览播放</h3>
-            <button id="btn-content-player-close" type="button" class="secondary">关闭</button>
-          </div>
-          <div id="content-player-status" class="hint">准备播放</div>
-          <div id="content-player-body" class="content-player-body">
-            <pre id="content-player-text" class="output"></pre>
+          <input id="theme" placeholder="主题偏好（可选）" />
+          <input id="tone" placeholder="情绪基调（可选）" />
+          <input id="structure" placeholder="结构模板偏好（可选）" />
+          <div class="grid two">
+            <button id="btn-story">生成故事卡</button>
+            <button id="btn-story-compare" style="background: linear-gradient(135deg, #4a90e2, #007bff);">模型对比</button>
           </div>
         </div>
       </div>
-    </main>
+      <div id="task-meta-panel" class="panel soft" style="margin-top:12px; display:none;">
+        <h3>任务指标 / 成本与速度</h3>
+        <div id="task-meta-content"></div>
+      </div>
+      <pre id="story-output" class="output"></pre>
+      <div id="story-review-panel" class="panel soft" style="margin-top:12px; display:none;"></div>
+    </section>
 
-    <script src="/static/app.js?v=20260410_cover_2"></script>
-  </body>
+    <section class="panel" id="compare-panel" style="display:none;">
+      <h2>模型对比结果</h2>
+      <div id="compare-results" class="grid two"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>第二层：剧本工坊</h2>
+        <button type="button" class="secondary section-preview-btn" data-open-content-player="workshop-output" data-player-title="剧本工坊预览">预览</button>
+      </div>
+      <div class="grid two">
+        <textarea id="role-req" placeholder="角色要求，例如：主角是表面冷漠但内心善良的医生"></textarea>
+        <textarea id="plot-req" placeholder="情节要求，例如：中段要有误会反转"></textarea>
+      </div>
+      <button id="btn-workshop">生成角色与情节</button>
+      <pre id="workshop-output" class="output"></pre>
+      <div id="workshop-review-panel" class="panel soft" style="margin-top:12px; display:none;"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>第三层：分镜工厂（基础）</h2>
+        <button type="button" class="secondary section-preview-btn" data-open-content-player="storyboard-output" data-player-title="分镜工厂预览">预览</button>
+      </div>
+      <div class="grid two">
+        <input id="visual-style" placeholder="视觉风格，例如：冷色悬疑、快节奏剪辑" />
+        <button id="btn-storyboard">生成分镜脚本</button>
+      </div>
+      <pre id="storyboard-output" class="output"></pre>
+      <div id="storyboard-review-panel" class="panel soft" style="margin-top:12px; display:none;"></div>
+    </section>
+
+    <section class="panel">
+      <h2>全局智能指令</h2>
+      <div class="grid two">
+        <input id="command" placeholder="例如：/将第三个场景改为夜间下雨" />
+        <button id="btn-command">执行命令</button>
+      </div>
+      <pre id="command-output" class="output"></pre>
+    </section>
+
+    <div id="content-player-modal" class="content-player-modal" aria-hidden="true">
+      <div class="content-player-dialog" role="dialog" aria-modal="true" aria-labelledby="content-player-title">
+        <div class="content-player-head">
+          <h3 id="content-player-title">内容预览播放</h3>
+          <button id="btn-content-player-close" type="button" class="secondary">关闭</button>
+        </div>
+        <div id="content-player-status" class="hint">准备播放</div>
+        <div id="content-player-body" class="content-player-body">
+          <pre id="content-player-text" class="output"></pre>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/app.js?v=20260410_cover_2"></script>
+</body>
 </html>

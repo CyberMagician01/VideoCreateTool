@@ -7,3 +7,4 @@ data/*.json
 .vscode/
 push_output.txt
 static/uploads/
+.venv/

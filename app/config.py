@@ -105,3 +105,16 @@ MODEL_PROVIDERS = {
         "requires_qiniu_credential": True,
     }
 }
+
+# 新增：模型成本配置，每模型每token成本（估算值）
+MODEL_COSTS = {
+    "qwen-plus": 0.002,  # 每token成本，单位元
+    "qwen-turbo": 0.001,
+    # 默认值
+    "default": 0.001,
+}
+
+# 新增：降级规则，同provider下fallback models
+FALLBACK_RULES = {
+    "qiniu": QINIU_LLM_FALLBACK_MODELS or ["qwen-turbo"],
+}

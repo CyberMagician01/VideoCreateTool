@@ -24,9 +24,11 @@ body {
   overflow-x: hidden;
 }
 
-h1, h2, h3 {
-    font-family: "SimSun", "宋体", serif;
-    margin-top: 0;
+h1,
+h2,
+h3 {
+  font-family: "SimSun", "宋体", serif;
+  margin-top: 0;
 }
 
 h3 {
@@ -757,6 +759,7 @@ input[readonly] {
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -972,6 +975,7 @@ input[readonly] {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -1012,4 +1016,30 @@ input[readonly] {
   .container {
     margin-top: 16px;
   }
+}
+
+/* Task meta panel styles */
+.meta-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(60, 50, 40, 0.08);
+}
+
+.meta-item:last-child {
+  border-bottom: none;
+}
+
+.meta-label {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.meta-value {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: right;
 }

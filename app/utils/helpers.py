@@ -142,3 +142,25 @@ def _derive_storyboard_prompt(shot: Dict[str, Any]) -> str:
         _as_text(shot.get("dialogue_or_sfx")),
     ]
     return " | ".join(part for part in parts if part)
+
+
+# 新增：估算任务时长，单位秒
+def _estimate_duration(stage: str) -> int:
+    durations = {
+        "story_engine": 10,
+        "story_review": 8,
+        "story_rewrite": 12,
+        "title_packaging": 6,
+        "workshop": 15,
+        "storyboard": 20,
+        "command": 5,
+        "export": 2,
+    }
+    return durations.get(stage, 10)
+
+
+# 新增：计算实际成本，基于model和估算token数
+def _calculate_cost(model: str, estimated_tokens: int = 1000) -> float:
+    from app.config import MODEL_COSTS
+    cost_per_token = MODEL_COSTS.get(model, MODEL_COSTS["default"])
+    return cost_per_token * estimated_tokens

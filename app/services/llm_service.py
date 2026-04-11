@@ -185,8 +185,17 @@ def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt:
     if not model_candidates:
         raise RuntimeError("No model configured for qiniu provider")
 
+    primary_model = model_candidates[0]
+    final_model = primary_model
+    fallback_triggered = False
+    fallback_reason = ""
+    fallback_from = ""
+    fallback_to = ""
+
     last_error: Optional[Exception] = None
-    for model_name in model_candidates:
+    retry_count = 0
+    max_retries = 3
+    for model_name in model_candidates[:max_retries]:  # 限制最多重试次数
         body = {
             "model": model_name,
             "temperature": 0.7,
@@ -199,11 +208,24 @@ def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt:
         try:
             data = _request_chat_completion(url, headers, body)
             content = data["choices"][0]["message"]["content"]
-            return _extract_json(content)
+            result = _extract_json(content)
+            # 新增：计算actual_cost，估算token数
+            estimated_tokens = len(user_prompt.split()) * 2  # 简单估算
+            from app.config import MODEL_COSTS
+            cost_per_token = MODEL_COSTS.get(model_name, MODEL_COSTS["default"])
+            actual_cost = cost_per_token * estimated_tokens
+            final_model = model_name
+            fallback_triggered = retry_count > 0
+            if fallback_triggered:
+                fallback_reason = "no available channels for model"
+                fallback_from = primary_model
+                fallback_to = final_model
+            return {"result": result, "actual_cost": actual_cost, "retry_count": retry_count, "primary_model": primary_model, "final_model": final_model, "fallback_triggered": fallback_triggered, "fallback_reason": fallback_reason, "fallback_from": fallback_from, "fallback_to": fallback_to}
         except requests.HTTPError as e:
             last_error = e
+            retry_count += 1
             detail = (e.response.text if e.response is not None else "").lower()
-            if "no available channels for model" in detail:
+            if "no available channels for model" in detail and retry_count < max_retries:
                 continue
             raise
         except requests.Timeout as e:
@@ -268,7 +290,8 @@ def _call_provider_json(provider: str, system_prompt: str, user_prompt: str) -> 
     if provider_config.get("requires_qiniu_credential") and (not _has_qiniu_text_credential()):
         raise RuntimeError("QINIU_TEXT_API_KEY or QINIU_AK/QINIU_SK is missing in .env")
 
-    return _call_openai_compatible_json(provider_config, system_prompt, user_prompt)
+    response = _call_openai_compatible_json(provider_config, system_prompt, user_prompt)
+    return response
 
 
 def _call_provider_text(provider: str, system_prompt: str, user_prompt: str) -> str:
