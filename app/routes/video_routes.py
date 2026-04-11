@@ -12,6 +12,7 @@ from app.services.llm_service import _call_provider_text
 from app.services.prompt_service import _video_script_prompt
 from app.services.video_service import (
     _create_video_task,
+    _extract_last_frame_to_qiniu,
     _extend_video_prompts,
     _upload_image_to_qiniu_kodo,
     _qiniu_web_search,
@@ -157,6 +158,7 @@ def create_long_video_task():
     start_image_url = str(payload.get("start_image_url", "")).strip()
     end_image_url = str(payload.get("end_image_url", "")).strip()
     video_mode = str(payload.get("video_mode", "")).strip()
+    chain_by_last_frame = bool(payload.get("chain_by_last_frame", True))
 
     try:
         segments_plan = _extend_video_prompts(
@@ -171,34 +173,76 @@ def create_long_video_task():
         prompt_extend = bool(payload.get("prompt_extend", True))
 
         segments_result: List[Dict[str, Any]] = []
-        for seg in segments_plan:
-            task_payload = {
-                "prompt": seg["prompt"],
+
+        if chain_by_last_frame and segments_plan:
+            first_seg = segments_plan[0]
+            first_payload = {
+                "prompt": first_seg["prompt"],
                 "model": video_model,
                 "size": size,
-                "duration": int(seg["duration"]),
+                "duration": int(first_seg["duration"]),
                 "prompt_extend": prompt_extend,
             }
             if video_mode:
-                task_payload["video_mode"] = video_mode
+                first_payload["video_mode"] = video_mode
             if image_url:
-                task_payload["image_url"] = image_url
+                first_payload["image_url"] = image_url
             if start_image_url:
-                task_payload["start_image_url"] = start_image_url
+                first_payload["start_image_url"] = start_image_url
             if end_image_url:
-                task_payload["end_image_url"] = end_image_url
+                first_payload["end_image_url"] = end_image_url
 
-            task_raw = _create_video_task(task_payload)
-            output = task_raw.get("output", {}) if isinstance(task_raw, dict) else {}
+            first_raw = _create_video_task(first_payload)
+            first_output = first_raw.get("output", {}) if isinstance(first_raw, dict) else {}
             segments_result.append(
                 {
-                    "index": seg["index"],
-                    "duration": seg["duration"],
-                    "prompt": seg["prompt"],
-                    "task_id": output.get("task_id", ""),
-                    "task_status": output.get("task_status", "PENDING"),
+                    "index": first_seg["index"],
+                    "duration": first_seg["duration"],
+                    "prompt": first_seg["prompt"],
+                    "task_id": first_output.get("task_id", ""),
+                    "task_status": first_output.get("task_status", "PENDING"),
                 }
             )
+
+            for seg in segments_plan[1:]:
+                segments_result.append(
+                    {
+                        "index": seg["index"],
+                        "duration": seg["duration"],
+                        "prompt": seg["prompt"],
+                        "task_id": "",
+                        "task_status": "WAITING_PREVIOUS_SEGMENT",
+                    }
+                )
+        else:
+            for seg in segments_plan:
+                task_payload = {
+                    "prompt": seg["prompt"],
+                    "model": video_model,
+                    "size": size,
+                    "duration": int(seg["duration"]),
+                    "prompt_extend": prompt_extend,
+                }
+                if video_mode:
+                    task_payload["video_mode"] = video_mode
+                if image_url:
+                    task_payload["image_url"] = image_url
+                if start_image_url:
+                    task_payload["start_image_url"] = start_image_url
+                if end_image_url:
+                    task_payload["end_image_url"] = end_image_url
+
+                task_raw = _create_video_task(task_payload)
+                output = task_raw.get("output", {}) if isinstance(task_raw, dict) else {}
+                segments_result.append(
+                    {
+                        "index": seg["index"],
+                        "duration": seg["duration"],
+                        "prompt": seg["prompt"],
+                        "task_id": output.get("task_id", ""),
+                        "task_status": output.get("task_status", "PENDING"),
+                    }
+                )
 
         return jsonify(
             {
@@ -207,6 +251,10 @@ def create_long_video_task():
                     "total_duration": total_duration,
                     "segment_duration": segment_duration,
                     "provider": provider,
+                    "chain_by_last_frame": chain_by_last_frame,
+                    "model": video_model,
+                    "size": size,
+                    "prompt_extend": prompt_extend,
                     "segments": segments_result,
                 },
             }
@@ -216,6 +264,46 @@ def create_long_video_task():
         if e.response is not None:
             detail = e.response.text
         return jsonify({"ok": False, "error": "Long video task creation failed", "detail": detail}), 502
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@video_bp.post("/api/video/create-next-segment-from-video")
+def create_next_segment_from_video():
+    req_json = request.get_json(silent=True) or {}
+    payload = req_json.get("payload", req_json)
+
+    prev_video_url = str(payload.get("prev_video_url", "")).strip()
+    prompt = str(payload.get("prompt", "")).strip()
+    if not prev_video_url:
+        return jsonify({"ok": False, "error": "prev_video_url is required."}), 400
+    if not prompt:
+        return jsonify({"ok": False, "error": "prompt is required."}), 400
+
+    try:
+        duration = int(payload.get("duration", 10))
+    except (TypeError, ValueError):
+        duration = 10
+
+    task_payload = {
+        "prompt": prompt,
+        "model": payload.get("model", QINIU_VIDEO_MODEL),
+        "size": payload.get("size", "1280*720"),
+        "duration": max(1, min(duration, 16)),
+        "prompt_extend": bool(payload.get("prompt_extend", True)),
+        "video_mode": "image",
+    }
+
+    try:
+        frame_url = _extract_last_frame_to_qiniu(prev_video_url)
+        task_payload["image_url"] = frame_url
+        result = _create_video_task(task_payload)
+        return jsonify({"ok": True, "result": result, "frame_image_url": frame_url})
+    except requests.HTTPError as e:
+        detail: Optional[str] = None
+        if e.response is not None:
+            detail = e.response.text
+        return jsonify({"ok": False, "error": "Next segment task creation failed", "detail": detail}), 502
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": str(e)}), 500
 

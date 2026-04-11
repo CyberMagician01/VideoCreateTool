@@ -67,7 +67,7 @@
           </div>
           <div class="form-group">
             <label for="edit-project-description">项目描述</label>
-            <textarea id="edit-project-description" placeholder="输入项目描述（可选）"></textarea>
+            <textarea id="edit-project-description" placeholder="项目描述示例：都市悬疑 / 情感反转 / 成长励志"></textarea>
           </div>
           <div class="edit-project-actions">
             <button type="button" class="btn-cancel" id="btn-edit-cancel">取消</button>
@@ -116,9 +116,29 @@
         <div class="grid two">
           <textarea id="video-idea" placeholder="核心设定，例如：外卖员陷入时间循环，每次都要在5分钟内救下一个陌生人"></textarea>
           <div class="mini-form">
-            <input id="video-genre" placeholder="题材，例如：都市悬疑" />
+            <select id="video-genre" aria-label="短剧题材选择">
+              <option value="都市悬疑" selected>都市悬疑</option>
+              <option value="都市情感">都市情感</option>
+              <option value="逆袭爽文">逆袭爽文</option>
+              <option value="重生复仇">重生复仇</option>
+              <option value="豪门恩怨">豪门恩怨</option>
+              <option value="古风权谋">古风权谋</option>
+              <option value="民国虐恋">民国虐恋</option>
+              <option value="校园青春">校园青春</option>
+              <option value="科幻脑洞">科幻脑洞</option>
+              <option value="奇幻冒险">奇幻冒险</option>
+            </select>
             <input id="video-roles" placeholder="人物，例如：外卖员阿城、神秘女孩、交警" />
-            <input id="video-style" placeholder="风格，例如：电影感、冷调、快剪" />
+            <select id="video-style" aria-label="短剧风格选择">
+              <option value="电影感写实" selected>电影感写实</option>
+              <option value="动漫风格">动漫风格</option>
+              <option value="国风水墨">国风水墨</option>
+              <option value="赛博朋克">赛博朋克</option>
+              <option value="复古港风">复古港风</option>
+              <option value="治愈清新">治愈清新</option>
+              <option value="悬疑惊悚">悬疑惊悚</option>
+              <option value="黑白胶片">黑白胶片</option>
+            </select>
             <input id="video-duration" type="number" min="1" max="16" value="5" placeholder="单段时长（秒，1-16）" />
             <button id="btn-video-script">生成短剧脚本+视频提示词</button>
           </div>
@@ -160,8 +180,6 @@
               </div>
             </div>
             <input id="video-image-url" placeholder="图生视频首帧URL（可手动粘贴，上传后会自动填充）" />
-            <input id="video-start-image-url" placeholder="首尾帧模式：首帧URL（可选）" />
-            <input id="video-end-image-url" placeholder="首尾帧模式：尾帧URL（可选）" />
             <input id="video-total-duration" type="number" min="5" value="10" placeholder="总时长（秒，可>10 则自动拆段）" />
             <input id="video-filename-prefix" placeholder="下载文件名前缀，例如：my_drama" />
             <label class="hint" style="display:flex; align-items:center; gap:8px; margin:0;">

@@ -87,6 +87,10 @@ def _default_project_state() -> Dict[str, Any]:
             "long_segments": [],
             "total_duration": 0,
             "filename_prefix": "",
+            "long_chain_by_last_frame": False,
+            "long_model": "",
+            "long_size": "",
+            "long_prompt_extend": True,
         },
     }
 

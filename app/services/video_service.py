@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
+from uuid import uuid4
 
 import requests
 
@@ -121,6 +122,51 @@ def _upload_image_to_qiniu_kodo(local_file_path: str, object_key: str) -> str:
         raise RuntimeError(f"Qiniu Kodo upload failed: {detail_text}")
 
     return f"{public_domain}/{quote(object_key)}"
+
+
+def _extract_last_frame_to_qiniu(video_url: str) -> str:
+    url = str(video_url or "").strip()
+    if not url:
+        raise ValueError("video_url is required")
+
+    temp_dir = Path(__file__).resolve().parents[2] / "static" / "uploads" / "video_refs"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = int(time.time())
+    suffix = Path(url.split("?")[0]).suffix.lower() or ".mp4"
+    local_video = temp_dir / f"tmp_video_{ts}_{uuid4().hex[:8]}{suffix}"
+    local_frame = temp_dir / f"tmp_frame_{ts}_{uuid4().hex[:8]}.jpg"
+
+    try:
+        resp = _request_no_proxy("GET", url, stream=True, timeout=120, verify=False)
+        resp.raise_for_status()
+        with local_video.open("wb") as fp:
+            for chunk in resp.iter_content(chunk_size=1024 * 256):
+                if chunk:
+                    fp.write(chunk)
+
+        from moviepy.editor import VideoFileClip
+        import imageio.v2 as imageio
+
+        with VideoFileClip(str(local_video)) as clip:
+            duration = float(clip.duration or 0.0)
+            frame_time = max(0.0, duration - 0.08) if duration > 0 else 0.0
+            frame = clip.get_frame(frame_time)
+            imageio.imwrite(str(local_frame), frame, quality=92)
+
+        object_key = f"video_refs/last_frame_{ts}_{uuid4().hex[:8]}.jpg"
+        return _upload_image_to_qiniu_kodo(str(local_frame), object_key)
+    finally:
+        try:
+            if local_video.exists():
+                local_video.unlink()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if local_frame.exists():
+                local_frame.unlink()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _looks_like_vidu_queue_path(path_text: str) -> bool:

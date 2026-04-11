@@ -578,6 +578,10 @@ function normalizeVideoState(videoLab) {
     long_segments: [],
     total_duration: 0,
     filename_prefix: '',
+    long_chain_by_last_frame: false,
+    long_model: '',
+    long_size: '',
+    long_prompt_extend: true,
   };
 
   if (!videoLab || typeof videoLab !== 'object') {
@@ -616,6 +620,10 @@ function normalizeVideoState(videoLab) {
     long_segments: longSegments,
     total_duration: toInt(videoLab.total_duration, 0, 0),
     filename_prefix: toText(videoLab.filename_prefix),
+    long_chain_by_last_frame: videoLab.long_chain_by_last_frame === true,
+    long_model: toText(videoLab.long_model),
+    long_size: toText(videoLab.long_size),
+    long_prompt_extend: videoLab.long_prompt_extend !== false,
   };
 }
 
@@ -636,6 +644,8 @@ let selectedRelationIndex = null;
 let draftRelationNodes = [];
 let visualUndoStack = [];
 let videoPollTimer = null;
+let longChainPollTimer = null;
+let longChainBusy = false;
 let providersList = [];
 let storyTemplates = [];
 const VIDEO_POLL_INTERVAL_MS = 15000;
@@ -1032,7 +1042,7 @@ async function createSnapshotFromDialog() {
   if (name === null) {
     return;
   }
-  const description = window.prompt('请输入快照说明（可选）：', '') || '';
+  const description = window.prompt('请输入快照说明：', '') || '';
 
   const data = await fetchJson(`/api/projects/${currentProjectId}/snapshots`, {
     method: 'POST',
@@ -1630,6 +1640,144 @@ function startVideoPolling() {
       stopVideoPolling(false);
     });
   }, VIDEO_POLL_INTERVAL_MS);
+}
+
+function isVideoTaskFinished(status) {
+  return ['SUCCEEDED', 'FAILED', 'CANCELED'].includes(String(status || '').toUpperCase());
+}
+
+function stopLongChainPolling() {
+  if (longChainPollTimer) {
+    clearInterval(longChainPollTimer);
+    longChainPollTimer = null;
+  }
+}
+
+async function runLongChainStep() {
+  if (longChainBusy) {
+    return;
+  }
+
+  const video = getVideoState();
+  const segments = Array.isArray(video.long_segments) ? video.long_segments : [];
+  if (!video.long_chain_by_last_frame || !segments.length) {
+    stopLongChainPolling();
+    return;
+  }
+
+  longChainBusy = true;
+  try {
+    let changed = false;
+
+    for (let i = 0; i < segments.length; i += 1) {
+      const seg = segments[i];
+      if (!seg?.task_id || isVideoTaskFinished(seg.task_status)) {
+        continue;
+      }
+
+      const taskData = await fetchJson(`/api/video/task/${seg.task_id}`, { method: 'GET' });
+      if (!taskData.ok) {
+        updateOutput('video-long-output', `自动续段查询失败: ${taskData.error}\n${taskData.detail || ''}`);
+        return;
+      }
+
+      const output = taskData.result?.output || taskData.result || {};
+      const status = output.task_status || output.status || 'UNKNOWN';
+      const url = output.video_url || output.url || output?.result?.video?.url || '';
+
+      if (seg.task_status !== status) {
+        seg.task_status = status;
+        changed = true;
+      }
+      if (url && seg.video_url !== url) {
+        seg.video_url = url;
+        video.video_url = url;
+        changed = true;
+      }
+
+      // Only one active segment is expected in chain mode.
+      break;
+    }
+
+    for (let i = 1; i < segments.length; i += 1) {
+      const prev = segments[i - 1];
+      const curr = segments[i];
+      if (curr.task_id) {
+        continue;
+      }
+      if (String(prev.task_status || '').toUpperCase() !== 'SUCCEEDED' || !prev.video_url) {
+        continue;
+      }
+
+      updateOutput('video-long-output', `第 ${i} 段已完成，正在截取末帧并创建第 ${i + 1} 段任务...`);
+      const createData = await fetchJson('/api/video/create-next-segment-from-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payload: {
+            prev_video_url: prev.video_url,
+            prompt: curr.prompt || '',
+            duration: Number(curr.duration || 10),
+            model: video.long_model || bind('video-model')?.value.trim() || 'viduq3-turbo',
+            size: video.long_size || bind('video-size')?.value.trim() || '1280*720',
+            prompt_extend: video.long_prompt_extend !== false,
+          },
+        }),
+      });
+
+      if (!createData.ok) {
+        updateOutput('video-long-output', `自动续段创建失败: ${createData.error}\n${createData.detail || ''}`);
+        return;
+      }
+
+      const nextOutput = createData.result?.output || createData.result || {};
+      curr.task_id = nextOutput.task_id || nextOutput.request_id || '';
+      curr.task_status = nextOutput.task_status || nextOutput.status || 'PENDING';
+      changed = true;
+
+      if (createData.frame_image_url) {
+        video.image_url = createData.frame_image_url;
+      }
+      updateOutput('video-long-output', `已自动创建第 ${i + 1} 段任务\nTask ID: ${curr.task_id}\n状态: ${curr.task_status}`);
+      break;
+    }
+
+    if (changed) {
+      saveState();
+      renderLongSegmentsList();
+    }
+
+    const hasRunningTask = segments.some((seg) => seg.task_id && !isVideoTaskFinished(seg.task_status));
+    const hasCreatableWaiting = segments.some((seg, idx) => {
+      if (idx === 0 || seg.task_id) {
+        return false;
+      }
+      const prev = segments[idx - 1];
+      return String(prev?.task_status || '').toUpperCase() === 'SUCCEEDED' && Boolean(prev?.video_url);
+    });
+
+    if (!hasRunningTask && !hasCreatableWaiting) {
+      stopLongChainPolling();
+      const hasWaiting = segments.some((seg) => !seg.task_id);
+      if (hasWaiting) {
+        updateOutput('video-long-output', '自动续段已停止：上一段未成功，后续分段未创建。可修正后手动重试。');
+      } else {
+        updateOutput('video-long-output', '长视频自动续段已完成，所有分段任务已结束。');
+      }
+    }
+  } catch (err) {
+    updateOutput('video-long-output', `自动续段异常: ${err.message}`);
+  } finally {
+    longChainBusy = false;
+  }
+}
+
+function startLongChainPolling() {
+  stopLongChainPolling();
+  longChainPollTimer = setInterval(() => {
+    runLongChainStep();
+  }, VIDEO_POLL_INTERVAL_MS);
+  runLongChainStep();
 }
 
 async function runStage(stage, payload, provider = null) {
@@ -3108,7 +3256,11 @@ function restoreOutputsOnPageLoad() {
   }
 
   if (bind('video-long-output') && video.long_segments && video.long_segments.length) {
-    updateOutput('video-long-output', '已检测到长视频拆段任务，可在下方列表中逐段查询和播放。');
+    if (video.long_chain_by_last_frame) {
+      updateOutput('video-long-output', '已检测到长视频自动续段任务，系统会在上一段完成后自动创建下一段。');
+    } else {
+      updateOutput('video-long-output', '已检测到长视频拆段任务，可在下方列表中逐段查询和播放。');
+    }
   }
 
   if (
@@ -3118,6 +3270,16 @@ function restoreOutputsOnPageLoad() {
     !['SUCCEEDED', 'FAILED', 'CANCELED'].includes(video.task_status || '')
   ) {
     startVideoPolling();
+  }
+
+  if (
+    bind('video-auto-poll') &&
+    video.auto_poll &&
+    video.long_chain_by_last_frame &&
+    Array.isArray(video.long_segments) &&
+    video.long_segments.length
+  ) {
+    startLongChainPolling();
   }
 
   renderLongSegmentsList();
@@ -3271,6 +3433,83 @@ ${data.detail || ''}`);
         updateOutput('video-task-output', `错误: ${err.message}`);
       }
     });
+  });
+}
+
+function setContentPlayerStatus(text) {
+  const status = bind('content-player-status');
+  if (status) {
+    status.textContent = text || '内容预览';
+  }
+}
+
+function closeContentPlayerModal() {
+  const modal = bind('content-player-modal');
+  if (modal) {
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  setContentPlayerStatus('内容预览');
+}
+
+function openContentPlayerModal(sourceId, titleText = '') {
+  const source = bind(sourceId);
+  const modal = bind('content-player-modal');
+  const textNode = bind('content-player-text');
+  const body = bind('content-player-body');
+  const title = bind('content-player-title');
+
+  if (!source || !modal || !textNode || !body) {
+    return;
+  }
+
+  const content = String(source.textContent || '').trim();
+  if (!content) {
+    alert('当前没有可预览内容，请先生成结果。');
+    return;
+  }
+
+  if (title) {
+    title.textContent = titleText || '内容预览播放';
+  }
+  textNode.textContent = content;
+  body.scrollTop = 0;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+  setContentPlayerStatus('已加载预览内容');
+}
+
+function bindContentPlayerActions() {
+  const modal = bind('content-player-modal');
+  if (!modal) {
+    return;
+  }
+
+  document.querySelectorAll('[data-open-content-player]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const sourceId = btn.getAttribute('data-open-content-player') || '';
+      const titleText = btn.getAttribute('data-player-title') || '内容预览播放';
+      openContentPlayerModal(sourceId, titleText);
+    });
+  });
+
+  const btnClose = bind('btn-content-player-close');
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
+      closeContentPlayerModal();
+    });
+  }
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) {
+      closeContentPlayerModal();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && modal.classList.contains('show')) {
+      closeContentPlayerModal();
+    }
   });
 }
 
@@ -4132,6 +4371,7 @@ function bindVideoActions() {
         segment_duration: segmentDuration,
         prompt_extend: true,
         provider: currentProvider,
+        chain_by_last_frame: true,
       };
       payload.video_mode = detectVideoMode(payload.image_url, payload.start_image_url, payload.end_image_url);
 
@@ -4158,6 +4398,10 @@ function bindVideoActions() {
           long_segments: data.result?.segments || [],
           total_duration: data.result?.total_duration || totalDuration,
           filename_prefix: bind('video-filename-prefix')?.value.trim() || '',
+          long_chain_by_last_frame: data.result?.chain_by_last_frame === true,
+          long_model: data.result?.model || model,
+          long_size: data.result?.size || size,
+          long_prompt_extend: data.result?.prompt_extend !== false,
         });
         const video = resetVideoRunState({ preservePrompt: true, preserveScript: true, preserveSegments: false });
         video.prompt = normalizedVideo.prompt;
@@ -4167,6 +4411,11 @@ function bindVideoActions() {
         video.long_segments = normalizedVideo.long_segments;
         video.total_duration = normalizedVideo.total_duration;
         video.filename_prefix = normalizedVideo.filename_prefix;
+        video.long_chain_by_last_frame = normalizedVideo.long_chain_by_last_frame;
+        video.long_model = normalizedVideo.long_model;
+        video.long_size = normalizedVideo.long_size;
+        video.long_prompt_extend = normalizedVideo.long_prompt_extend;
+        video.auto_poll = Boolean(bind('video-auto-poll')?.checked);
         saveState();
 
         if (bind('video-task-output')) updateOutput('video-task-output', '');
@@ -4177,11 +4426,18 @@ function bindVideoActions() {
           video.long_segments.forEach((segment) => {
             text += `\n- 第${segment.index}段: 时长 ${segment.duration} 秒, Task ID: ${segment.task_id || '-'}\n  提示词: ${String(segment.prompt || '').slice(0, 120)}...`;
           });
-          text += '\n\n可以使用下方“查询任务状态”按 Task ID 查询单段状态，或在控制台查看任务详情。';
+          if (video.long_chain_by_last_frame) {
+            text += '\n\n已开启自动续段：第1段完成后，会自动截取末帧并创建下一段任务。';
+          } else {
+            text += '\n\n可以使用下方“查询任务状态”按 Task ID 查询单段状态，或在控制台查看任务详情。';
+          }
         }
 
         updateOutput('video-long-output', text);
         renderLongSegmentsList();
+        if (video.long_chain_by_last_frame && video.auto_poll) {
+          startLongChainPolling();
+        }
       } catch (err) {
         updateOutput('video-long-output', `错误: ${err.message}`);
       }
@@ -4203,8 +4459,11 @@ function bindVideoActions() {
       saveState();
       if (!video.auto_poll) {
         stopVideoPolling(false);
+        stopLongChainPolling();
       } else if (video.task_id && !['SUCCEEDED', 'FAILED', 'CANCELED'].includes(video.task_status || '')) {
         startVideoPolling();
+      } else if (video.long_chain_by_last_frame && (video.long_segments || []).length) {
+        startLongChainPolling();
       }
     });
   }
@@ -4213,6 +4472,7 @@ function bindVideoActions() {
   if (btnStopPoll) {
     btnStopPoll.addEventListener('click', () => {
       stopVideoPolling(true);
+      stopLongChainPolling();
     });
   }
 }
@@ -4230,6 +4490,7 @@ async function initApp() {
   initProjectDrawerDrag();
   bindEditProjectActions();
   bindWorkshopActions();
+  bindContentPlayerActions();
   bindVisualActions();
   bindExportActions();
   bindVideoActions();

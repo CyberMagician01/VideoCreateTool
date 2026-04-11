@@ -525,6 +525,10 @@ def _normalize_video_lab_state(video_lab: Any) -> Dict[str, Any]:
         "long_segments": segments,
         "total_duration": _safe_int(video_lab.get("total_duration"), 0, minimum=0),
         "filename_prefix": _as_text(video_lab.get("filename_prefix")),
+        "long_chain_by_last_frame": bool(video_lab.get("long_chain_by_last_frame", False)),
+        "long_model": _as_text(video_lab.get("long_model")),
+        "long_size": _as_text(video_lab.get("long_size")),
+        "long_prompt_extend": bool(video_lab.get("long_prompt_extend", True)),
     }
 
 
