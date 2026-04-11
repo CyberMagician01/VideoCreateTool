@@ -426,3 +426,24 @@ python main.py
 ## 补充：常见报错说明
 1. 镜像源报错 `download result from oss storage err`：可更换清华镜像源 `https://pypi.tuna.tsinghua.edu.cn/simple` 重试
 2. 访问报错 `URL拼写可能存在错误，请检查`：请确认项目已正常启动，访问地址为 `http://127.0.0.1:5000`，检查URL拼写是否正确
+
+---
+
+## Encoding Guardrails (Important)
+
+To avoid repeated Chinese encoding issues on Windows:
+
+1. Before running local scripts in PowerShell, enable UTF-8 session:
+   - `.\scripts\use-utf8.ps1`
+2. Keep editor and repository encoding unified:
+   - `.editorconfig` enforces UTF-8 + LF for text files
+   - `.gitattributes` enforces text normalization
+   - `.vscode/settings.json` sets UTF-8 explicitly
+3. Run encoding health check before commit:
+   - `python scripts/check_encoding.py`
+
+If `check_encoding.py` fails, fix the listed files before merging.
+
+4. Optional one-time cleanup for historical garbled project names in database:
+   - Preview: `python scripts/repair_project_names.py`
+   - Apply: `python scripts/repair_project_names.py --apply`

@@ -109,6 +109,174 @@ def _apply_command_fallback(payload: Dict[str, Any], result: Dict[str, Any]) -> 
     }
 
 
+def _extract_duration_seconds(text: str) -> Optional[int]:
+    source = str(text or "")
+    if not source:
+        return None
+
+    for pattern in [r"(\d{1,2})\s*(?:秒|s|sec|second)", r"(?:时长|长度)\s*(\d{1,2})"]:
+        match = re.search(pattern, source, flags=re.IGNORECASE)
+        if match:
+            value = int(match.group(1))
+            return max(1, min(60, value))
+    return None
+
+
+def _extract_video_prompt(text: str) -> str:
+    source = str(text or "").strip()
+    if not source:
+        return ""
+
+    patterns = [
+        r"(?:提示词|prompt)\s*(?:是|为|:|：)\s*([^\n\r]+)$",
+        r"(?:视频|片子|任务)\s*(?:内容|主题)?\s*(?:是|为|:|：)\s*([^\n\r]+)$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, source, flags=re.IGNORECASE)
+        if match:
+            return str(match.group(1)).strip(" ，。,.!?！？")
+    return ""
+
+
+def _extract_project_name(text: str) -> str:
+    source = str(text or "").strip()
+    if not source:
+        return ""
+
+    patterns = [
+        r"(?:切换(?:到)?(?:项目)?|进入(?:项目)?|打开(?:项目)?)\s*[:：]?\s*([^\s，。,.!?！？]{1,40})$",
+        r"(?:项目)\s*[:：]?\s*([^\s，。,.!?！？]{1,40})$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, source, flags=re.IGNORECASE)
+        if match:
+            return str(match.group(1)).strip()
+    return ""
+
+
+def _infer_router_fallback(utterance: str) -> Optional[Dict[str, Any]]:
+    text = str(utterance or "").strip()
+    if not text:
+        return None
+
+    lowered = text.lower()
+    duration = _extract_duration_seconds(text)
+    video_prompt = _extract_video_prompt(text)
+    project_name = _extract_project_name(text)
+
+    if re.search(r"(导出|导成|导为|export)", text, flags=re.IGNORECASE):
+        if "pdf" in lowered:
+            return {"module": "export", "action": "export_pdf", "risk_level": "low"}
+        if re.search(r"(docx|word)", lowered, flags=re.IGNORECASE):
+            return {"module": "export", "action": "export_docx", "risk_level": "low"}
+        if re.search(r"(markdown|md)", lowered, flags=re.IGNORECASE):
+            return {"module": "export", "action": "export_markdown", "risk_level": "low"}
+
+    if re.search(r"(切换|进入|打开)", text, flags=re.IGNORECASE) and re.search(r"(项目|project)", text, flags=re.IGNORECASE):
+        return {
+            "module": "project",
+            "action": "switch_project",
+            "risk_level": "medium",
+            "project_name": project_name,
+        }
+
+    if re.search(r"(生成|创建|新建)", text, flags=re.IGNORECASE) and re.search(r"(视频|video|任务)", text, flags=re.IGNORECASE):
+        return {
+            "module": "video",
+            "action": "create_task",
+            "risk_level": "low",
+            "duration": duration,
+            "prompt": video_prompt,
+        }
+
+    if re.search(r"(查询|查看)", text, flags=re.IGNORECASE) and re.search(r"(视频|任务|状态)", text, flags=re.IGNORECASE):
+        return {"module": "video", "action": "query_task", "risk_level": "low"}
+
+    if re.search(r"(新增|添加|修改|改成|改为|调整|删除|角色|人物|场景|剧情|台词)", text, flags=re.IGNORECASE):
+        return {
+            "module": "creative",
+            "action": "edit_story",
+            "risk_level": "low",
+            "command_text": text,
+        }
+
+    return None
+
+
+def _apply_global_router_fallback(payload: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return result
+
+    utterance = str(payload.get("utterance", "") if isinstance(payload, dict) else "").strip()
+    if not utterance:
+        return result
+
+    intent = result.get("intent", {})
+    intent = intent if isinstance(intent, dict) else {}
+    params = result.get("params", {})
+    params = params if isinstance(params, dict) else {}
+    safety = result.get("safety", {})
+    safety = safety if isinstance(safety, dict) else {}
+
+    module = str(intent.get("module", "")).strip().lower()
+    action = str(intent.get("action", "")).strip().lower()
+    confidence_raw = intent.get("confidence", 0.0)
+    try:
+        confidence = float(confidence_raw)
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    inferred = _infer_router_fallback(utterance)
+    if not inferred:
+        return result
+
+    should_override = module == "unknown" or action == "unknown" or confidence < 0.35
+    should_enrich = (module, action) in {("video", "create_task"), ("project", "switch_project"), ("creative", "edit_story")}
+    if not should_override and not should_enrich:
+        return result
+
+    merged_intent = dict(intent)
+    merged_params = dict(params)
+    merged_safety = dict(safety)
+
+    if should_override:
+        merged_intent["module"] = inferred.get("module", module or "unknown")
+        merged_intent["action"] = inferred.get("action", action or "unknown")
+        merged_intent["risk_level"] = inferred.get("risk_level", merged_intent.get("risk_level", "medium"))
+        merged_intent["confidence"] = max(confidence, 0.78)
+        reason = str(merged_intent.get("reason", "")).strip()
+        merged_intent["reason"] = (reason + "；" if reason else "") + "触发规则兜底"
+
+    if inferred.get("command_text") and not str(merged_params.get("command_text", "")).strip():
+        merged_params["command_text"] = inferred["command_text"]
+    if inferred.get("prompt") and not str(merged_params.get("prompt", "")).strip():
+        merged_params["prompt"] = inferred["prompt"]
+    duration = inferred.get("duration")
+    if isinstance(duration, int):
+        raw_duration = merged_params.get("duration")
+        raw_duration_int: Optional[int] = None
+        if isinstance(raw_duration, (int, float)):
+            raw_duration_int = int(raw_duration)
+        elif isinstance(raw_duration, str) and raw_duration.isdigit():
+            raw_duration_int = int(raw_duration)
+        if raw_duration_int in (None, 0) or (raw_duration_int in (1, 10) and duration != raw_duration_int):
+            merged_params["duration"] = duration
+    if inferred.get("project_name") and not str(merged_params.get("project_name", "")).strip():
+        merged_params["project_name"] = inferred["project_name"]
+
+    if merged_intent.get("action") == "switch_project":
+        merged_safety["needs_confirmation"] = True
+        if not str(merged_safety.get("confirm_message", "")).strip():
+            merged_safety["confirm_message"] = "确认切换项目吗？"
+
+    return {
+        **result,
+        "intent": merged_intent,
+        "params": merged_params,
+        "safety": merged_safety,
+    }
+
+
 @agent_bp.get("/api/story-templates")
 def get_story_templates():
     return jsonify({"ok": True, "templates": _list_story_templates()})
@@ -272,11 +440,12 @@ def run_agent_stage():
         elif stage == "global_router":
             response = _call_provider_json(
                 provider,
-                "??????????????????????????????",
+                "You are a global intent router for a short-video creation assistant. Return strict JSON only.",
                 _global_router_prompt(payload),
             )
             result = response["result"]
             result = _normalize_global_router_result(result)
+            result = _apply_global_router_fallback(payload, result)
         else:
             result = _export_markdown(payload)
             response = {"actual_cost": 0.0, "retry_count": 0}  # export不调用模型

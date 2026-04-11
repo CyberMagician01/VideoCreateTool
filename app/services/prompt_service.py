@@ -613,49 +613,80 @@ def _global_router_prompt(payload: Dict[str, Any]) -> str:
     context = payload.get("context", {}) if isinstance(payload, dict) else {}
 
     return f"""
-你是短剧创作助手的全局语义路由器。
-任务：把用户自然语言映射为结构化“模块动作”。
-必须只输出 JSON，不要 markdown，不要解释。
+你是短剧创作工作台的“全局路由器”。
+你的任务是将用户自然语言指令映射到固定的 module/action，并提取参数。
+只输出 JSON，不要输出 Markdown，不要解释。
+
+路由原则：
+1. 能判断就不要返回 unknown。
+2. 缺少参数时，仍然给出最可能的 module/action，并在 clarify_questions 里补充问题。
+3. 仅当语义完全无法判断时，才返回 unknown/unknown。
 
 用户输入：
 {utterance}
 
-当前项目状态：
+项目状态（供参考）：
 {json.dumps(project_state, ensure_ascii=False, indent=2)}
 
-补充上下文：
+上下文（供参考）：
 {json.dumps(context, ensure_ascii=False, indent=2)}
 
 可选 module/action：
-1) creative / edit_story
-2) video / create_task
-3) video / query_task
-4) project / create_project
-5) project / switch_project
-6) project / create_snapshot
-7) export / export_markdown
-8) export / export_docx
-9) export / export_pdf
-10) unknown / unknown
+- creative/edit_story
+- video/create_task
+- video/query_task
+- project/create_project
+- project/switch_project
+- project/create_snapshot
+- export/export_markdown
+- export/export_docx
+- export/export_pdf
+- unknown/unknown
 
-约束：
-1. 严禁使用关键词匹配思维，必须基于语义理解。
-2. 参数尽量补齐，缺失就放空并在 clarify_questions 提问。
-3. 高风险动作（切换项目、覆盖性导出等）risk_level 提高，needs_confirmation 设为 true。
-4. 如果语义不清晰，module/action 返回 unknown。
+参数提取约束：
+- creative/edit_story：把原始编辑指令写入 params.command_text
+- video/create_task：尽量提取 prompt、duration、model、size
+- video/query_task：尽量提取 task_id
+- project/create_project：尽量提取 project_name
+- project/switch_project：尽量提取 project_name 或 project_id
+- project/create_snapshot：尽量提取 snapshot_name、snapshot_description
+- export/*：一般不需要额外参数
 
-输出 JSON schema：
+risk_level：
+- low：普通读写、生成、查询
+- medium：可能影响较多内容，但可撤销
+- high：高风险或不可逆操作
+
+few-shot：
+输入："把第三个场景改成夜间下雨"
+输出.intent: {{"module":"creative","action":"edit_story"}}
+输出.params.command_text: "把第三个场景改成夜间下雨"
+
+输入："新增角色王婶"
+输出.intent: {{"module":"creative","action":"edit_story"}}
+输出.params.command_text: "新增角色王婶"
+
+输入："生成一个10秒视频任务，提示词是雨夜走廊追逐"
+输出.intent: {{"module":"video","action":"create_task"}}
+输出.params: {{"prompt":"雨夜走廊追逐","duration":10}}
+
+输入："切换到项目 夜雨版本"
+输出.intent: {{"module":"project","action":"switch_project"}}
+输出.params.project_name: "夜雨版本"
+输出.safety.needs_confirmation: true
+
+JSON schema:
 {{
   "intent": {{
     "module": "creative|video|project|export|unknown",
     "action": "edit_story|create_task|query_task|create_project|switch_project|create_snapshot|export_markdown|export_docx|export_pdf|unknown",
     "confidence": 0.0,
     "risk_level": "low|medium|high",
-    "reason": "路由理由"
+    "reason": "????"
   }},
   "params": {{
-    "command_text": "用于 creative.edit_story 的文本",
-    "prompt": "用于 video.create_task",
+    "command_text": "",
+    "prompt": "",
     "duration": 10,
     "model": "viduq3-turbo",
     "size": "1280*720",
@@ -665,7 +696,7 @@ def _global_router_prompt(payload: Dict[str, Any]) -> str:
     "snapshot_name": "",
     "snapshot_description": ""
   }},
-  "clarify_questions": ["问题1", "问题2"],
+  "clarify_questions": [],
   "safety": {{
     "needs_confirmation": false,
     "confirm_message": ""

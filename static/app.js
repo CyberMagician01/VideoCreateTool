@@ -118,6 +118,77 @@ function toInt(value, fallback = 0, minimum = null) {
   return result;
 }
 
+function resolveVideoMode(imageUrl, startImageUrl, endImageUrl) {
+  if (startImageUrl && endImageUrl) {
+    return 'start_end';
+  }
+  if (imageUrl) {
+    return 'image';
+  }
+  return 'text';
+}
+
+function normalizeProjectSearchKey(value) {
+  const text = toText(value);
+  if (!text) {
+    return '';
+  }
+  return text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[?？]/g, '')
+    .replace(/\s+/g, '')
+    .replace(/[^0-9a-z\u4e00-\u9fa5]/g, '');
+}
+
+function extractDigitKey(value) {
+  const text = toText(value);
+  if (!text) {
+    return '';
+  }
+  const chunks = text.match(/\d+/g);
+  return chunks ? chunks.join('') : '';
+}
+
+function findProjectByNameLoose(projects, targetName) {
+  const items = Array.isArray(projects) ? projects : [];
+  const rawTarget = toText(targetName);
+  if (!rawTarget) {
+    return null;
+  }
+
+  const exact = items.find((item) => toText(item?.name) === rawTarget);
+  if (exact) {
+    return exact;
+  }
+
+  const includes = items.find((item) => toText(item?.name).includes(rawTarget));
+  if (includes) {
+    return includes;
+  }
+
+  const targetKey = normalizeProjectSearchKey(rawTarget);
+  if (targetKey) {
+    const byKey = items.find((item) => {
+      const nameKey = normalizeProjectSearchKey(item?.name);
+      return Boolean(nameKey) && (nameKey === targetKey || nameKey.includes(targetKey) || targetKey.includes(nameKey));
+    });
+    if (byKey) {
+      return byKey;
+    }
+  }
+
+  const targetDigits = extractDigitKey(rawTarget);
+  if (targetDigits) {
+    const digitCandidates = items.filter((item) => extractDigitKey(item?.name) === targetDigits);
+    if (digitCandidates.length === 1) {
+      return digitCandidates[0];
+    }
+  }
+
+  return null;
+}
+
 function normalizeStoryCard(storyCard) {
   if (!storyCard || typeof storyCard !== 'object') {
     return null;
@@ -1237,7 +1308,7 @@ async function executeRoutedAction(routeResult, rawCommand, options = {}) {
       image_url: toText(state.video_lab?.image_url),
       start_image_url: toText(state.video_lab?.start_image_url),
       end_image_url: toText(state.video_lab?.end_image_url),
-      video_mode: detectVideoMode(
+      video_mode: resolveVideoMode(
         toText(state.video_lab?.image_url),
         toText(state.video_lab?.start_image_url),
         toText(state.video_lab?.end_image_url),
@@ -1291,7 +1362,7 @@ async function executeRoutedAction(routeResult, rawCommand, options = {}) {
       selected = (projectsCache || []).find((item) => String(item.id) === targetId);
     }
     if (!selected && targetName) {
-      selected = (projectsCache || []).find((item) => toText(item.name).includes(targetName));
+      selected = findProjectByNameLoose(projectsCache || [], targetName);
     }
     if (!selected) {
       return { ok: false, text: '未找到目标项目，请补充项目名。', error: 'project_not_found' };

@@ -83,11 +83,17 @@ def _extract_json(text: str) -> Dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\{[\s\S]*\}", text)
-    if not match:
-        raise ValueError("Model did not return JSON.")
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        start = match.start()
+        try:
+            obj, _end = decoder.raw_decode(text[start:])
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            continue
 
-    return _loads_with_light_repair(match.group(0))
+    return _loads_with_light_repair(text)
 
 
 def _resolve_url(base_url: str, path_or_url: str) -> str:
