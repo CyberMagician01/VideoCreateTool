@@ -3,16 +3,8 @@ const PROVIDER_KEY = 'ai_short_drama_provider_v1';
 const CURRENT_PROJECT_KEY = 'ai_short_drama_current_project_id_v1';
 const AUTO_SAVE_DELAY_MS = 3000;
 
-const EMPTY_STATE = {
-  story_inputs: {
-    idea: '',
-    theme: '',
-    tone: '',
-    structure: '',
-    template_id: '',
-  },
-  story_card: null,
-  review_lab: {
+function createEmptyReviewLab(stage = '') {
+  return {
     latest_review: {
       summary: '',
       overall_score: 0,
@@ -22,8 +14,29 @@ const EMPTY_STATE = {
       low_score_dimensions: [],
     },
     rewrite_candidates: [],
-    last_review_stage: '',
+    last_review_stage: stage,
     last_review_time: '',
+  };
+}
+
+const EMPTY_STATE = {
+  story_inputs: {
+    idea: '',
+    theme: '',
+    tone: '',
+    structure: '',
+    template_id: '',
+  },
+  story_card: null,
+  review_labs: {
+    story_engine: createEmptyReviewLab('story_engine'),
+    workshop: createEmptyReviewLab('workshop'),
+    storyboard: createEmptyReviewLab('storyboard'),
+  },
+  review_panel_state: {
+    story_engine: false,
+    workshop: false,
+    storyboard: false,
   },
   title_lab: {
     current_title: '',
@@ -33,6 +46,26 @@ const EMPTY_STATE = {
     recommended_reason: '',
     title_suggestions: [],
     topic_tags: [],
+    updated_at: '',
+  },
+  cover_lab: {
+    current_title: '',
+    style_preference: '',
+    focus_point: '',
+    summary: '',
+    main_title: '',
+    subtitle: '',
+    hook_lines: [],
+    visual_direction: '',
+    layout_direction: '',
+    color_palette: '',
+    image_prompt: '',
+    generated_image_url: '',
+    image_model: '',
+    image_size: '',
+    image_task_id: '',
+    image_task_status: '',
+    image_status_message: '',
     updated_at: '',
   },
   workshop: null,
@@ -204,8 +237,33 @@ function normalizeTitleLab(titleLab) {
   };
 }
 
+function normalizeCoverLab(coverLab) {
+  const base = EMPTY_STATE.cover_lab;
+  const parsed = (coverLab && typeof coverLab === 'object') ? coverLab : {};
+  return {
+    current_title: toText(parsed.current_title) || base.current_title,
+    style_preference: toText(parsed.style_preference) || base.style_preference,
+    focus_point: toText(parsed.focus_point) || base.focus_point,
+    summary: toText(parsed.summary) || base.summary,
+    main_title: toText(parsed.main_title) || base.main_title,
+    subtitle: toText(parsed.subtitle) || base.subtitle,
+    hook_lines: normalizeStringList(parsed.hook_lines),
+    visual_direction: toText(parsed.visual_direction) || base.visual_direction,
+    layout_direction: toText(parsed.layout_direction) || base.layout_direction,
+    color_palette: toText(parsed.color_palette) || base.color_palette,
+    image_prompt: toText(parsed.image_prompt) || base.image_prompt,
+    generated_image_url: toText(parsed.generated_image_url) || base.generated_image_url,
+    image_model: toText(parsed.image_model) || base.image_model,
+    image_size: toText(parsed.image_size) || base.image_size,
+    image_task_id: toText(parsed.image_task_id) || base.image_task_id,
+    image_task_status: toText(parsed.image_task_status) || base.image_task_status,
+    image_status_message: toText(parsed.image_status_message) || base.image_status_message,
+    updated_at: toText(parsed.updated_at) || base.updated_at,
+  };
+}
+
 function normalizeReviewLab(reviewLab) {
-  const base = EMPTY_STATE.review_lab;
+  const base = createEmptyReviewLab();
   const parsed = (reviewLab && typeof reviewLab === 'object') ? reviewLab : {};
   const latest = (parsed.latest_review && typeof parsed.latest_review === 'object') ? parsed.latest_review : {};
   const dimensions = Array.isArray(latest.dimensions)
@@ -271,6 +329,65 @@ function normalizeReviewLab(reviewLab) {
     last_review_stage: toText(parsed.last_review_stage) || base.last_review_stage,
     last_review_time: toText(parsed.last_review_time) || base.last_review_time,
   };
+}
+
+function normalizeReviewLabs(reviewLabs, legacyReviewLab = null) {
+  const parsed = (reviewLabs && typeof reviewLabs === 'object') ? reviewLabs : {};
+  const result = {
+    story_engine: normalizeReviewLab(parsed.story_engine),
+    workshop: normalizeReviewLab(parsed.workshop),
+    storyboard: normalizeReviewLab(parsed.storyboard),
+  };
+
+  result.story_engine.last_review_stage ||= 'story_engine';
+  result.workshop.last_review_stage ||= 'workshop';
+  result.storyboard.last_review_stage ||= 'storyboard';
+
+  if (legacyReviewLab && typeof legacyReviewLab === 'object') {
+    const legacy = normalizeReviewLab(legacyReviewLab);
+    const stage = ['story_engine', 'workshop', 'storyboard'].includes(legacy.last_review_stage)
+      ? legacy.last_review_stage
+      : 'story_engine';
+    result[stage] = {
+      ...legacy,
+      last_review_stage: stage,
+    };
+  }
+
+  return result;
+}
+
+function normalizeReviewPanelState(panelState) {
+  const base = EMPTY_STATE.review_panel_state;
+  const parsed = (panelState && typeof panelState === 'object') ? panelState : {};
+  return {
+    story_engine: Boolean(parsed.story_engine ?? base.story_engine),
+    workshop: Boolean(parsed.workshop ?? base.workshop),
+    storyboard: Boolean(parsed.storyboard ?? base.storyboard),
+  };
+}
+
+function getStageReviewLab(stage) {
+  return normalizeReviewLab(state.review_labs?.[stage]);
+}
+
+function setStageReviewLab(stage, reviewLab) {
+  state.review_labs = normalizeReviewLabs({
+    ...(state.review_labs || {}),
+    [stage]: reviewLab,
+  });
+}
+
+function isReviewPanelExpanded(stage) {
+  return Boolean(state.review_panel_state?.[stage]);
+}
+
+function setReviewPanelExpanded(stage, expanded) {
+  state.review_panel_state = normalizeReviewPanelState({
+    ...(state.review_panel_state || {}),
+    [stage]: Boolean(expanded),
+  });
+  saveState();
 }
 
 function normalizeWorkshopData(workshop) {
@@ -522,6 +639,8 @@ let videoPollTimer = null;
 let providersList = [];
 let storyTemplates = [];
 const VIDEO_POLL_INTERVAL_MS = 15000;
+const COVER_IMAGE_POLL_INTERVAL_MS = 5000;
+const COVER_IMAGE_POLL_MAX_ATTEMPTS = 24;
 
 function setAutoSaveStatus(text) {
   const target = bind('project-save-status');
@@ -602,7 +721,9 @@ function normalizeState(input) {
   return {
     story_inputs: normalizeStoryInputs(parsed.story_inputs),
     story_card: normalizeStoryCard(parsed.story_card),
-    review_lab: normalizeReviewLab(parsed.review_lab),
+    review_labs: normalizeReviewLabs(parsed.review_labs, parsed.review_lab),
+    review_panel_state: normalizeReviewPanelState(parsed.review_panel_state),
+    cover_lab: normalizeCoverLab(parsed.cover_lab),
     title_lab: normalizeTitleLab(parsed.title_lab),
     workshop: normalizeWorkshopData(parsed.workshop),
     storyboard: normalizeStoryboardData(parsed.storyboard),
@@ -614,7 +735,9 @@ function applyState(newState) {
   const normalized = normalizeState(newState);
   state.story_inputs = normalized.story_inputs;
   state.story_card = normalized.story_card;
-  state.review_lab = normalized.review_lab;
+  state.review_labs = normalized.review_labs;
+  state.review_panel_state = normalized.review_panel_state;
+  state.cover_lab = normalized.cover_lab;
   state.title_lab = normalized.title_lab;
   state.workshop = normalized.workshop;
   state.storyboard = normalized.storyboard;
@@ -1183,7 +1306,7 @@ async function switchProject(projectId, opts = {}) {
   clearOutputsByPage();
   restoreOutputsOnPageLoad();
   refreshVisualEditors();
-  renderReviewLab();
+  renderAllReviewLabs();
   renderProjectMeta();
   await loadProjects();
   try {
@@ -1921,11 +2044,39 @@ function reviewTargetLabel(target) {
   return '故事引擎';
 }
 
+function clearReviewPanels() {
+  ['story-review-panel', 'workshop-review-panel', 'storyboard-review-panel'].forEach((id) => {
+    const panel = bind(id);
+    if (!panel) {
+      return;
+    }
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+  });
+}
+
+function reviewPanelIdByStage(stage) {
+  if (stage === 'workshop') {
+    return 'workshop-review-panel';
+  }
+  if (stage === 'storyboard') {
+    return 'storyboard-review-panel';
+  }
+  return 'story-review-panel';
+}
+
+function renderAllReviewLabs() {
+  clearReviewPanels();
+  ['story_engine', 'workshop', 'storyboard'].forEach((stage) => {
+    renderReviewLab('', stage);
+  });
+}
+
 async function runStoryReviewFlow(currentStage, { withRewrite = false } = {}) {
   const stage = currentStage || inferReviewStage();
   if (!stage || !state.story_card) {
-    state.review_lab = normalizeReviewLab(null);
-    renderReviewLab();
+    setStageReviewLab(stage || 'story_engine', createEmptyReviewLab(stage || 'story_engine'));
+    renderReviewLab('', stage);
     return;
   }
 
@@ -1935,41 +2086,45 @@ async function runStoryReviewFlow(currentStage, { withRewrite = false } = {}) {
   });
 
   if (!reviewData.ok) {
-    state.review_lab.latest_review = normalizeReviewLab(null).latest_review;
-    state.review_lab.rewrite_candidates = [];
-    state.review_lab.last_review_stage = stage;
-    state.review_lab.last_review_time = new Date().toISOString();
-    renderReviewLab(`评分失败：${reviewData.error}`);
+    setStageReviewLab(stage, {
+      ...createEmptyReviewLab(stage),
+      last_review_time: new Date().toISOString(),
+    });
+    renderReviewLab(`评分失败：${reviewData.error}`, stage);
     return;
   }
 
-  state.review_lab.latest_review = normalizeReviewLab({ latest_review: reviewData.result }).latest_review;
-  state.review_lab.last_review_stage = stage;
-  state.review_lab.last_review_time = new Date().toISOString();
+  const nextReviewLab = {
+    ...getStageReviewLab(stage),
+    latest_review: normalizeReviewLab({ latest_review: reviewData.result }).latest_review,
+    last_review_stage: stage,
+    last_review_time: new Date().toISOString(),
+  };
 
-  if (withRewrite && state.review_lab.latest_review.low_score_dimensions.length) {
+  if (withRewrite && nextReviewLab.latest_review.low_score_dimensions.length) {
     const rewriteData = await runStage('story_rewrite', {
       current_stage: stage,
       project_state: buildReviewProjectState(),
-      review_result: state.review_lab.latest_review,
+      review_result: nextReviewLab.latest_review,
     });
     if (rewriteData.ok) {
-      state.review_lab.rewrite_candidates = normalizeReviewLab({
+      nextReviewLab.rewrite_candidates = normalizeReviewLab({
         rewrite_candidates: rewriteData.result.candidates,
       }).rewrite_candidates;
     } else {
-      state.review_lab.rewrite_candidates = [];
+      nextReviewLab.rewrite_candidates = [];
     }
   } else {
-    state.review_lab.rewrite_candidates = [];
+    nextReviewLab.rewrite_candidates = [];
   }
 
+  setStageReviewLab(stage, nextReviewLab);
   saveState();
-  renderReviewLab();
+  renderReviewLab('', stage);
 }
 
-async function applyReviewCandidate(candidateId) {
-  const candidates = state.review_lab?.rewrite_candidates || [];
+async function applyReviewCandidate(candidateId, stage) {
+  const candidates = getStageReviewLab(stage).rewrite_candidates || [];
   const selected = candidates.find((item) => String(item.id) === String(candidateId));
   if (!selected) {
     return;
@@ -1992,26 +2147,31 @@ async function applyReviewCandidate(candidateId) {
     return;
   }
 
-  state.review_lab.rewrite_candidates = [];
+  setStageReviewLab(stage, {
+    ...getStageReviewLab(stage),
+    rewrite_candidates: [],
+  });
   saveState();
 
   updateOutput('story-output', formatStoryResultV2({ story_card: state.story_card }));
   updateOutput('workshop-output', state.workshop ? formatWorkshopResult(state.workshop) : '');
   updateOutput('storyboard-output', state.storyboard ? formatStoryboardResult(state.storyboard) : '');
   refreshVisualEditors();
-  renderReviewLab('已应用改写版本，正在重新评分...');
+  renderReviewLab('已应用改写版本，正在重新评分...', rerunStage);
   await runStoryReviewFlow(rerunStage, { withRewrite: true });
 }
 
-function renderReviewLab(statusText = '') {
-  const panel = bind('review-panel');
+function renderReviewLab(statusText = '', targetStage = '') {
+  const activeStage = targetStage || inferReviewStage();
+  const reviewLab = getStageReviewLab(activeStage);
+  const panel = bind(reviewPanelIdByStage(activeStage));
   if (!panel) {
     return;
   }
 
-  const reviewLab = normalizeReviewLab(state.review_lab);
   const review = reviewLab.latest_review;
   const candidates = reviewLab.rewrite_candidates || [];
+  const isExpanded = isReviewPanelExpanded(activeStage);
   const hasContent =
     review.summary ||
     review.dimensions.length ||
@@ -2072,12 +2232,14 @@ function renderReviewLab(statusText = '') {
   panel.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
       <h3 style="margin:0;">剧本评分器</h3>
-      <button id="btn-review-rerun" class="secondary">重新评分</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button data-review-toggle="1" class="secondary">${isExpanded ? '收起详情' : '展开详情'}</button>
+        ${isExpanded ? '<button data-review-rerun="1" class="secondary">重新评分</button>' : ''}
+      </div>
     </div>
     ${statusText ? `<p class="hint" style="margin-top:8px;">${statusText}</p>` : ''}
     <div style="margin-top:10px;"><strong>总分：</strong>${review.overall_score || 0}</div>
     <div class="hint" style="margin-top:6px;">${review.summary || '暂无整体评语'}</div>
-    <div class="grid two" style="margin-top:12px;">${dimsHtml}</div>
     <div class="grid two" style="margin-top:12px;">
       <div>
         <h4 style="margin-bottom:6px;">主要问题</h4>
@@ -2089,20 +2251,43 @@ function renderReviewLab(statusText = '') {
       </div>
     </div>
     <div style="margin-top:12px;" class="hint">最近评分阶段：${reviewLab.last_review_stage || '-'} | 时间：${reviewLab.last_review_time || '-'}</div>
+    ${
+      isExpanded
+        ? `
+    <div style="margin-top:12px;">
+      <h4 style="margin-bottom:6px;">维度详情</h4>
+      <div class="grid two">${dimsHtml}</div>
+    </div>
     <div style="margin-top:12px;">
       <h4 style="margin-bottom:6px;">自动改稿候选</h4>
       ${candidateHtml}
     </div>
+    `
+        : `
+    <div style="margin-top:12px;" class="hint">
+      已收起详细评分与改稿候选。当前候选数：${candidates.length}
+    </div>
+    `
+    }
   `;
 
-  const rerunBtn = bind('btn-review-rerun');
+  const toggleBtn = panel.querySelector('[data-review-toggle]');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      setReviewPanelExpanded(activeStage, !isExpanded);
+      renderReviewLab(statusText, activeStage);
+    });
+  }
+
+  const rerunBtn = panel.querySelector('[data-review-rerun]');
   if (rerunBtn) {
     rerunBtn.addEventListener('click', () => {
-      renderReviewLab('正在重新评分...');
-      runStoryReviewFlow(reviewLab.last_review_stage || inferReviewStage(), {
-        withRewrite: stageSupportsRewrite(reviewLab.last_review_stage || inferReviewStage()),
+      const rerunStage = reviewLab.last_review_stage || activeStage || inferReviewStage();
+      renderReviewLab('正在重新评分...', rerunStage);
+      runStoryReviewFlow(rerunStage, {
+        withRewrite: stageSupportsRewrite(rerunStage),
       }).catch((err) => {
-        renderReviewLab(`重新评分失败：${err.message}`);
+        renderReviewLab(`重新评分失败：${err.message}`, rerunStage);
       });
     });
   }
@@ -2113,8 +2298,8 @@ function renderReviewLab(statusText = '') {
       if (!candidateId) {
         return;
       }
-      applyReviewCandidate(candidateId).catch((err) => {
-        renderReviewLab(`应用改写失败：${err.message}`);
+      applyReviewCandidate(candidateId, activeStage).catch((err) => {
+        renderReviewLab(`应用改写失败：${err.message}`, activeStage);
       });
     });
   });
@@ -2229,7 +2414,7 @@ function bindWorkshopActions() {
       saveState();
 
       updateOutput('story-output', formatStoryResultV2(data.result));
-      renderReviewLab('正在评分并生成改稿建议...');
+      renderReviewLab('正在评分并生成改稿建议...', 'story_engine');
       await runStoryReviewFlow('story_engine', { withRewrite: true });
     });
   }
@@ -2321,7 +2506,7 @@ function bindWorkshopActions() {
 
       updateOutput('workshop-output', formatWorkshopResult(state.workshop));
       refreshVisualEditors();
-      renderReviewLab('正在根据最新剧本结构评分...');
+      renderReviewLab('正在根据最新剧本结构评分...', 'workshop');
       await runStoryReviewFlow('workshop', { withRewrite: true });
     });
   }
@@ -2345,7 +2530,7 @@ function bindWorkshopActions() {
       saveState();
 
       updateOutput('storyboard-output', formatStoryboardResult(state.storyboard));
-      renderReviewLab('正在根据最新分镜评分...');
+      renderReviewLab('正在根据最新分镜评分...', 'storyboard');
       await runStoryReviewFlow('storyboard', { withRewrite: true });
     });
   }
@@ -2375,8 +2560,8 @@ function bindWorkshopActions() {
         state.storyboard = normalizeStoryboardData(data.result.updated_state.storyboard) || state.storyboard;
         saveState();
         refreshVisualEditors();
-        renderReviewLab('正在根据最新修改重新评分...');
         const nextStage = inferReviewStage();
+        renderReviewLab('正在根据最新修改重新评分...', nextStage);
         await runStoryReviewFlow(nextStage, { withRewrite: stageSupportsRewrite(nextStage) });
       }
 
@@ -2619,12 +2804,206 @@ function formatTitlePackagingResult(titleLab) {
   return lines.join('\n');
 }
 
+function formatCoverPackagingResult(coverLab) {
+  const data = normalizeCoverLab(coverLab);
+  const lines = [];
+  lines.push('【封面策划总览】');
+  lines.push(data.summary || '-');
+  lines.push('');
+  lines.push(`【当前标题】${data.current_title || '-'}`);
+  lines.push(`【风格偏好】${data.style_preference || '-'}`);
+  lines.push(`【主打点】${data.focus_point || '-'}`);
+  lines.push(`【封面主标题】${data.main_title || '-'}`);
+  lines.push(`【封面副标题】${data.subtitle || '-'}`);
+  lines.push('');
+  lines.push('【封面短句】');
+  if (data.hook_lines.length) {
+    data.hook_lines.forEach((item, index) => {
+      lines.push(`${index + 1}. ${item}`);
+    });
+  } else {
+    lines.push('-');
+  }
+  lines.push('');
+  lines.push(`【视觉方向】${data.visual_direction || '-'}`);
+  lines.push(`【排版建议】${data.layout_direction || '-'}`);
+  lines.push(`【色彩建议】${data.color_palette || '-'}`);
+  lines.push('');
+  lines.push('【文生图提示词】');
+  lines.push(data.image_prompt || '-');
+  if (data.image_task_id || data.image_task_status || data.image_status_message) {
+    lines.push('');
+    lines.push(`任务状态：${data.image_task_status || '-'}`);
+    lines.push(`任务ID：${data.image_task_id || '-'}`);
+    lines.push(`状态说明：${data.image_status_message || '-'}`);
+  }
+  if (data.generated_image_url) {
+    lines.push('');
+    lines.push(`【图片模型】${data.image_model || '-'}`);
+    lines.push(`【图片尺寸】${data.image_size || '-'}`);
+    lines.push(`【已生成封面】${data.generated_image_url}`);
+  }
+  return lines.join('\n');
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function syncCoverImageToProject(imageUrl) {
+  if (!imageUrl || !currentProjectId) {
+    return;
+  }
+
+  currentProjectMeta = currentProjectMeta || {};
+  currentProjectMeta.cover_image = imageUrl;
+  await fetchJson(`/api/projects/${currentProjectId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cover_image: imageUrl,
+      last_provider: currentProvider,
+    }),
+  });
+  await loadProjects();
+  renderProjectMeta();
+}
+
+async function pollCoverImageTask(taskId, coverLabSnapshot) {
+  const baseCoverLab = normalizeCoverLab(coverLabSnapshot);
+
+  for (let attempt = 1; attempt <= COVER_IMAGE_POLL_MAX_ATTEMPTS; attempt += 1) {
+    if (attempt > 1) {
+      await wait(COVER_IMAGE_POLL_INTERVAL_MS);
+    }
+
+    const queryData = await runStage('cover_image_query', { task_id: taskId });
+    if (!queryData.ok) {
+      return queryData;
+    }
+
+    const result = queryData.result || {};
+    const nextCoverLab = normalizeCoverLab({
+      ...state.cover_lab,
+      ...baseCoverLab,
+      image_task_id: toText(result.task_id) || taskId,
+      image_task_status: toText(result.task_status),
+      image_status_message: toText(result.status_message),
+      image_model: toText(result.model) || baseCoverLab.image_model,
+      image_size: toText(result.size) || baseCoverLab.image_size,
+      generated_image_url: toText(result.image_url) || state.cover_lab?.generated_image_url || '',
+      updated_at: new Date().toISOString(),
+    });
+
+    state.cover_lab = nextCoverLab;
+    saveState();
+    updateOutput('cover-pack-output', formatCoverPackagingResult(nextCoverLab));
+    setCoverImageRunStatus(`正在查询生成结果（第 ${attempt} 次）...`, 'running');
+
+    if (nextCoverLab.generated_image_url) {
+      return { ok: true, result };
+    }
+
+    if (nextCoverLab.image_task_status === 'failed') {
+      return {
+        ok: false,
+        error: nextCoverLab.image_status_message || '封面生成失败',
+        detail: '',
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    error: '封面生成超时，请稍后再试',
+    detail: '',
+  };
+}
+
+function setCoverImageRunStatus(text, mode = 'idle') {
+  const target = bind('cover-image-run-status');
+  if (!target) {
+    return;
+  }
+  target.textContent = text || '未开始生成封面';
+  target.classList.toggle('cover-image-status-running', mode === 'running');
+  target.classList.toggle('cover-image-status-error', mode === 'error');
+}
+
+function setCoverImageButtonBusy(isBusy, text = '生成中...') {
+  const button = bind('btn-cover-image');
+  if (!button) {
+    return;
+  }
+  if (!button.dataset.idleText) {
+    button.dataset.idleText = button.textContent || '一键生成封面';
+  }
+  button.disabled = Boolean(isBusy);
+  button.classList.toggle('is-loading', Boolean(isBusy));
+  button.textContent = isBusy ? text : button.dataset.idleText;
+}
+
+function openCoverImageModal(url, statusText = '') {
+  const modal = bind('cover-image-modal');
+  const image = bind('cover-image-modal-preview');
+  const status = bind('cover-image-modal-status');
+  if (!modal || !image) {
+    return;
+  }
+  if (!url) {
+    setCoverImageRunStatus('还没有可预览的封面', 'error');
+    return;
+  }
+  image.src = url;
+  if (status) {
+    status.textContent = statusText || state.cover_lab?.image_status_message || '封面已生成';
+  }
+  modal.classList.add('show');
+}
+
+function closeCoverImageModal() {
+  const modal = bind('cover-image-modal');
+  if (modal) {
+    modal.classList.remove('show');
+  }
+}
+
+function renderCoverImagePreview(url) {
+  const wrap = bind('cover-image-preview-wrap');
+  const image = bind('cover-image-preview');
+  const previewButton = bind('btn-cover-image-preview');
+  if (!wrap || !image) {
+    return;
+  }
+  if (!url) {
+    wrap.style.display = 'none';
+    image.removeAttribute('src');
+    if (previewButton) {
+      previewButton.style.display = 'none';
+    }
+    return;
+  }
+  wrap.style.display = 'block';
+  image.src = url;
+  if (previewButton) {
+    previewButton.style.display = 'inline-flex';
+  }
+}
+
 function buildExportPayload() {
   return {
     project: currentProjectMeta ? { ...currentProjectMeta } : null,
     current_provider: currentProvider,
     exported_at: new Date().toISOString(),
     story_card: normalizeStoryCard(state.story_card),
+    cover_lab: normalizeCoverLab({
+      ...state.cover_lab,
+      current_title: bind('current-title-input')?.value || state.cover_lab?.current_title || '',
+      style_preference: bind('cover-style-input')?.value || state.cover_lab?.style_preference || '',
+      focus_point: bind('cover-focus-input')?.value || state.cover_lab?.focus_point || '',
+    }),
     title_lab: normalizeTitleLab({
       ...state.title_lab,
       current_title: bind('current-title-input')?.value || state.title_lab?.current_title || '',
@@ -2652,10 +3031,40 @@ function restoreOutputsOnPageLoad() {
   if (bind('current-title-input')) {
     bind('current-title-input').value = state.title_lab?.current_title || '';
   }
+  if (bind('cover-style-input')) {
+    bind('cover-style-input').value = state.cover_lab?.style_preference || '';
+  }
+  if (bind('cover-focus-input')) {
+    bind('cover-focus-input').value = state.cover_lab?.focus_point || '';
+  }
   if (bind('title-pack-output') && state.title_lab && state.title_lab.title_suggestions?.length) {
     updateOutput('title-pack-output', formatTitlePackagingResult(state.title_lab));
   } else if (bind('title-pack-output')) {
     updateOutput('title-pack-output', '');
+  }
+  if (
+    bind('cover-pack-output')
+    && state.cover_lab
+    && (
+      state.cover_lab.summary
+      || state.cover_lab.image_prompt
+      || state.cover_lab.image_task_id
+      || state.cover_lab.generated_image_url
+    )
+  ) {
+    updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
+  } else if (bind('cover-pack-output')) {
+    updateOutput('cover-pack-output', '');
+  }
+  renderCoverImagePreview(state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image || '');
+  if (bind('cover-image-run-status')) {
+    if (state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image) {
+      setCoverImageRunStatus('封面已生成，可点击查看封面');
+    } else if (state.cover_lab?.image_task_id) {
+      setCoverImageRunStatus(`最近任务状态：${state.cover_lab.image_task_status || '未知'}`);
+    } else {
+      setCoverImageRunStatus('未开始生成封面');
+    }
   }
 
   const video = getVideoState();
@@ -2909,7 +3318,55 @@ function bindExportActions() {
         ...state.title_lab,
         current_title: currentTitleInput.value,
       });
+      state.cover_lab = normalizeCoverLab({
+        ...state.cover_lab,
+        current_title: currentTitleInput.value,
+      });
       saveState();
+    });
+  }
+
+  const coverStyleInput = bind('cover-style-input');
+  if (coverStyleInput) {
+    coverStyleInput.addEventListener('input', () => {
+      state.cover_lab = normalizeCoverLab({
+        ...state.cover_lab,
+        style_preference: coverStyleInput.value,
+      });
+      saveState();
+    });
+  }
+
+  const coverFocusInput = bind('cover-focus-input');
+  if (coverFocusInput) {
+    coverFocusInput.addEventListener('input', () => {
+      state.cover_lab = normalizeCoverLab({
+        ...state.cover_lab,
+        focus_point: coverFocusInput.value,
+      });
+      saveState();
+    });
+  }
+
+  const coverPreviewButton = bind('btn-cover-image-preview');
+  if (coverPreviewButton) {
+    coverPreviewButton.addEventListener('click', () => {
+      const imageUrl = state.cover_lab?.generated_image_url || currentProjectMeta?.cover_image || '';
+      openCoverImageModal(imageUrl, state.cover_lab?.image_status_message || '封面已生成');
+    });
+  }
+
+  const coverModalCloseButton = bind('btn-cover-image-modal-close');
+  if (coverModalCloseButton) {
+    coverModalCloseButton.addEventListener('click', closeCoverImageModal);
+  }
+
+  const coverModal = bind('cover-image-modal');
+  if (coverModal) {
+    coverModal.addEventListener('click', (event) => {
+      if (event.target === coverModal) {
+        closeCoverImageModal();
+      }
     });
   }
 
@@ -2942,6 +3399,182 @@ function bindExportActions() {
       });
       saveState();
       updateOutput('title-pack-output', formatTitlePackagingResult(state.title_lab));
+    });
+  }
+
+  const btnCoverPack = bind('btn-cover-packaging');
+  if (btnCoverPack) {
+    btnCoverPack.addEventListener('click', async () => {
+      if (!hasDataForExport()) {
+        updateOutput('cover-pack-output', '暂无可分析内容，请先生成故事、剧本或分镜。');
+        return;
+      }
+
+      updateOutput('cover-pack-output', '正在生成短剧封面策划...');
+      const recommendedTitle =
+        (state.title_lab?.title_suggestions || []).find((item) => item.id === state.title_lab?.recommended_title_id)?.title
+        || '';
+      const payload = {
+        project: currentProjectMeta ? { ...currentProjectMeta } : null,
+        current_title:
+          bind('current-title-input')?.value?.trim()
+          || recommendedTitle
+          || state.cover_lab?.current_title
+          || '',
+        style_preference: bind('cover-style-input')?.value?.trim() || '',
+        focus_point: bind('cover-focus-input')?.value?.trim() || '',
+        story_card: normalizeStoryCard(state.story_card),
+        workshop: normalizeWorkshopData(state.workshop),
+        storyboard: normalizeStoryboardData(state.storyboard),
+      };
+      const data = await runStage('cover_packaging', payload);
+      if (!data.ok) {
+        updateOutput('cover-pack-output', `错误: ${data.error}\n${data.detail || ''}`);
+        return;
+      }
+
+      state.cover_lab = normalizeCoverLab({
+        ...data.result,
+        current_title: bind('current-title-input')?.value?.trim() || data.result.current_title || '',
+        style_preference: bind('cover-style-input')?.value?.trim() || data.result.style_preference || '',
+        focus_point: bind('cover-focus-input')?.value?.trim() || data.result.focus_point || '',
+        generated_image_url: state.cover_lab?.generated_image_url || '',
+        image_model: state.cover_lab?.image_model || '',
+        image_size: state.cover_lab?.image_size || '',
+        image_task_id: state.cover_lab?.image_task_id || '',
+        image_task_status: state.cover_lab?.image_task_status || '',
+        image_status_message: state.cover_lab?.image_status_message || '',
+        updated_at: new Date().toISOString(),
+      });
+      saveState();
+      updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
+      renderCoverImagePreview(state.cover_lab.generated_image_url || currentProjectMeta?.cover_image || '');
+    });
+  }
+
+  const btnCoverImage = bind('btn-cover-image');
+  if (btnCoverImage) {
+    btnCoverImage.addEventListener('click', async () => {
+      if (!hasDataForExport()) {
+        updateOutput('cover-pack-output', '暂无可分析内容，请先生成故事、剧本或分镜。');
+        return;
+      }
+
+      setCoverImageButtonBusy(true, '生成中...');
+      setCoverImageRunStatus('正在准备封面生成任务...', 'running');
+      try {
+      let coverLab = normalizeCoverLab(state.cover_lab);
+      if (!coverLab.image_prompt) {
+        setCoverImageRunStatus('正在先生成封面策划...', 'running');
+        updateOutput('cover-pack-output', '正在先生成封面策划...');
+        const recommendedTitle =
+          (state.title_lab?.title_suggestions || []).find((item) => item.id === state.title_lab?.recommended_title_id)?.title
+          || '';
+        const packagingPayload = {
+          project: currentProjectMeta ? { ...currentProjectMeta } : null,
+          current_title:
+            bind('current-title-input')?.value?.trim()
+            || recommendedTitle
+            || state.cover_lab?.current_title
+            || '',
+          style_preference: bind('cover-style-input')?.value?.trim() || '',
+          focus_point: bind('cover-focus-input')?.value?.trim() || '',
+          story_card: normalizeStoryCard(state.story_card),
+          workshop: normalizeWorkshopData(state.workshop),
+          storyboard: normalizeStoryboardData(state.storyboard),
+        };
+        const packagingData = await runStage('cover_packaging', packagingPayload);
+        if (!packagingData.ok) {
+          updateOutput('cover-pack-output', `错误: ${packagingData.error}\n${packagingData.detail || ''}`);
+          return;
+        }
+        state.cover_lab = normalizeCoverLab({
+          ...packagingData.result,
+          current_title: packagingPayload.current_title,
+          style_preference: packagingPayload.style_preference,
+          focus_point: packagingPayload.focus_point,
+          generated_image_url: state.cover_lab?.generated_image_url || '',
+          image_model: state.cover_lab?.image_model || '',
+          image_size: state.cover_lab?.image_size || '',
+          image_task_id: state.cover_lab?.image_task_id || '',
+          image_task_status: state.cover_lab?.image_task_status || '',
+          image_status_message: state.cover_lab?.image_status_message || '',
+          updated_at: new Date().toISOString(),
+        });
+        saveState();
+        coverLab = normalizeCoverLab(state.cover_lab);
+        updateOutput('cover-pack-output', formatCoverPackagingResult(coverLab));
+      }
+
+      updateOutput('cover-pack-output', `${formatCoverPackagingResult(coverLab)}\n\n正在根据封面策划生成图像...`);
+      setCoverImageRunStatus('正在提交封面生成任务...', 'running');
+      const imageData = await runStage('cover_image_generate', {
+        image_prompt: coverLab.image_prompt,
+      });
+      if (!imageData.ok) {
+        setCoverImageRunStatus(`生成失败：${imageData.error}`, 'error');
+        updateOutput('cover-pack-output', `错误: ${imageData.error}\n${imageData.detail || ''}`);
+        return;
+      }
+
+      let imageUrl = toText(imageData.result?.image_url);
+      const imageTaskId = toText(imageData.result?.task_id);
+      if (imageTaskId) {
+        state.cover_lab = normalizeCoverLab({
+          ...state.cover_lab,
+          image_model: toText(imageData.result?.model) || state.cover_lab?.image_model || '',
+          image_size: toText(imageData.result?.size) || state.cover_lab?.image_size || '',
+          image_task_id: imageTaskId,
+          image_task_status: toText(imageData.result?.task_status) || (imageUrl ? 'succeed' : 'submitted'),
+          image_status_message: '',
+          updated_at: new Date().toISOString(),
+        });
+        saveState();
+        setCoverImageRunStatus(`任务已创建：${imageTaskId}，正在生成...`, 'running');
+      }
+      if (!imageUrl && imageTaskId) {
+        updateOutput('cover-pack-output', `${formatCoverPackagingResult(state.cover_lab)}\n\n正在等待封面生成完成...`);
+        const pollData = await pollCoverImageTask(imageTaskId, state.cover_lab);
+        if (!pollData.ok) {
+          setCoverImageRunStatus(`生成失败：${pollData.error}`, 'error');
+          updateOutput('cover-pack-output', `错误: ${pollData.error}\n${pollData.detail || ''}`);
+          return;
+        }
+
+        imageUrl = toText(pollData.result?.image_url) || state.cover_lab.generated_image_url;
+        if (!imageUrl) {
+          updateOutput('cover-pack-output', '错误: 图片任务已完成，但没有返回可用图片地址');
+          return;
+        }
+      }
+      if (!imageUrl) {
+        updateOutput('cover-pack-output', '错误: 图片接口未返回可用图片地址');
+        return;
+      }
+
+      state.cover_lab = normalizeCoverLab({
+        ...state.cover_lab,
+        generated_image_url: imageUrl,
+        image_model: toText(imageData.result?.model) || state.cover_lab?.image_model || '',
+        image_size: toText(imageData.result?.size) || state.cover_lab?.image_size || '',
+        image_task_status: 'succeed',
+        image_status_message: '封面已生成并同步到当前项目',
+        updated_at: new Date().toISOString(),
+      });
+      saveState();
+
+      await syncCoverImageToProject(imageUrl);
+
+      updateOutput('cover-pack-output', formatCoverPackagingResult(state.cover_lab));
+      renderCoverImagePreview(imageUrl);
+      openCoverImageModal(imageUrl, '封面生成成功，已同步到当前项目');
+      setCoverImageRunStatus('封面生成成功，已同步到当前项目');
+      } catch (err) {
+        updateOutput('cover-pack-output', `错误: ${err.message}`);
+        setCoverImageRunStatus(`生成失败：${err.message}`, 'error');
+      } finally {
+        setCoverImageButtonBusy(false);
+      }
     });
   }
 

@@ -17,6 +17,7 @@ from app.utils.helpers import (
     _utc_now_iso,
 )
 from app.utils.normalizers import (
+    _normalize_cover_packaging_result,
     _normalize_story_card,
     _normalize_storyboard_result,
     _normalize_title_packaging_result,
@@ -79,6 +80,28 @@ def _title_pack_lines(title_lab: Dict[str, Any]) -> List[str]:
     else:
         lines.append("  - 无")
 
+    return lines
+
+
+def _cover_pack_lines(cover_lab: Dict[str, Any]) -> List[str]:
+    if not cover_lab:
+        return ["- 暂无封面策划"]
+
+    lines: List[str] = []
+    lines.append(f"- 当前标题: {cover_lab.get('current_title', '') or '-'}")
+    lines.append(f"- 风格偏好: {cover_lab.get('style_preference', '') or '-'}")
+    lines.append(f"- 主打点: {cover_lab.get('focus_point', '') or '-'}")
+    lines.append(f"- 总体策略: {cover_lab.get('summary', '') or '-'}")
+    lines.append(f"- 封面主标题: {cover_lab.get('main_title', '') or '-'}")
+    lines.append(f"- 封面副标题: {cover_lab.get('subtitle', '') or '-'}")
+    lines.append(f"- 视觉方向: {cover_lab.get('visual_direction', '') or '-'}")
+    lines.append(f"- 排版建议: {cover_lab.get('layout_direction', '') or '-'}")
+    lines.append(f"- 色彩建议: {cover_lab.get('color_palette', '') or '-'}")
+    lines.append("- 封面短句:")
+    for item in cover_lab.get("hook_lines", []) or ["无"]:
+        lines.append(f"  - {item}")
+    lines.append("- 文生图提示词:")
+    lines.append(f"  {cover_lab.get('image_prompt', '') or '-'}")
     return lines
 
 
@@ -156,6 +179,7 @@ def _normalize_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         or _as_text(project.get("last_provider")),
         "exported_at": _as_text(payload.get("exported_at") if isinstance(payload, dict) else "") or _utc_now_iso(),
         "story_card": _normalize_story_card(payload.get("story_card") if isinstance(payload, dict) else None),
+        "cover_lab": _normalize_cover_packaging_result(payload.get("cover_lab") if isinstance(payload, dict) else None),
         "title_lab": _normalize_title_packaging_result(payload.get("title_lab") if isinstance(payload, dict) else None),
         "workshop": _normalize_workshop_result(payload.get("workshop") if isinstance(payload, dict) else None),
         "storyboard": _normalize_storyboard_result(payload.get("storyboard") if isinstance(payload, dict) else None),
@@ -167,6 +191,7 @@ def _export_markdown(payload: Dict[str, Any]) -> Dict[str, Any]:
     data = _normalize_export_payload(payload)
     project = data["project"]
     story_card = data["story_card"] or {}
+    cover_lab = data["cover_lab"] or _default_project_state()["cover_lab"]
     title_lab = data["title_lab"] or _default_project_state()["title_lab"]
     workshop = data["workshop"] or {}
     storyboard = data["storyboard"] or {}
@@ -189,6 +214,10 @@ def _export_markdown(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     lines.append("## 标题包装建议")
     lines.extend(_title_pack_lines(title_lab))
+    lines.append("")
+
+    lines.append("## 封面策划")
+    lines.extend(_cover_pack_lines(cover_lab))
     lines.append("")
 
     lines.append("## 1. 故事卡")
@@ -299,6 +328,7 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
     data = _normalize_export_payload(payload)
     project = data["project"]
     story_card = data["story_card"] or {}
+    cover_lab = data["cover_lab"] or _default_project_state()["cover_lab"]
     title_lab = data["title_lab"] or _default_project_state()["title_lab"]
     workshop = data["workshop"] or {}
     storyboard = data["storyboard"] or {}
@@ -321,6 +351,10 @@ def _build_docx(payload: Dict[str, Any]) -> BytesIO:
 
     doc.add_heading("标题包装建议", level=2)
     for line in _title_pack_lines(title_lab):
+        doc.add_paragraph(line)
+
+    doc.add_heading("封面策划", level=2)
+    for line in _cover_pack_lines(cover_lab):
         doc.add_paragraph(line)
 
     doc.add_heading("1. 故事卡", level=2)
@@ -438,6 +472,7 @@ def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
     data = _normalize_export_payload(payload)
     project = data["project"]
     story_card = data["story_card"] or {}
+    cover_lab = data["cover_lab"] or _default_project_state()["cover_lab"]
     title_lab = data["title_lab"] or _default_project_state()["title_lab"]
     workshop = data["workshop"] or {}
     storyboard = data["storyboard"] or {}
@@ -487,6 +522,7 @@ def _build_pdf(payload: Dict[str, Any]) -> BytesIO:
     )
 
     y = draw_section("标题包装建议", _title_pack_lines(title_lab), y)
+    y = draw_section("封面策划", _cover_pack_lines(cover_lab), y)
 
     y = draw_section(
         "1. 故事卡",

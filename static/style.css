@@ -480,6 +480,13 @@ button:hover {
   filter: brightness(1.04);
 }
 
+button:disabled,
+button.is-loading {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
+}
+
 .mini-form {
   display: grid;
   gap: 10px;
@@ -580,6 +587,41 @@ button:hover {
   white-space: pre-wrap;
   word-break: break-word;
   background: rgba(255, 255, 255, 0.7);
+}
+
+.cover-image-toolbar {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cover-image-toolbar .hint {
+  margin: 0;
+}
+
+.cover-image-status-running {
+  color: #9f4e1e;
+  font-weight: 700;
+}
+
+.cover-image-status-error {
+  color: #a52d2d;
+  font-weight: 700;
+}
+
+.cover-image-preview-wrap {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 10px 12px;
+}
+
+#cover-image-preview {
+  display: none;
 }
 
 .viz-wrap {
@@ -715,6 +757,62 @@ input[readonly] {
   align-items: center;
   justify-content: center;
   z-index: 500;
+}
+
+.cover-image-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 14, 10, 0.58);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 620;
+  padding: 18px;
+}
+
+.cover-image-modal.show {
+  display: flex;
+}
+
+.cover-image-dialog {
+  width: min(760px, 94vw);
+  max-height: 92vh;
+  overflow: auto;
+  background: rgba(255, 250, 244, 0.98);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.28);
+  animation: slideUp 0.3s ease;
+}
+
+.cover-image-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cover-image-dialog-head h3 {
+  margin: 0;
+}
+
+.cover-image-modal-body {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #1f1a16;
+  padding: 12px;
+  display: grid;
+  place-items: center;
+}
+
+#cover-image-modal-preview {
+  display: block;
+  width: min(100%, 520px);
+  max-height: 72vh;
+  object-fit: contain;
+  border-radius: 12px;
 }
 
 .edit-project-modal.show {

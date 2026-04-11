@@ -4,9 +4,11 @@ import requests
 from flask import Blueprint, jsonify, request
 
 from app.config import DEFAULT_PROVIDER, MODEL_PROVIDERS
+from app.services.cover_service import _create_cover_image_task, _query_cover_image_task
 from app.services.export_service import _export_markdown
 from app.services.llm_service import _call_provider_json, _has_qiniu_text_credential
 from app.services.prompt_service import (
+    _cover_packaging_prompt,
     _command_prompt,
     _story_engine_prompt,
     _title_packaging_prompt,
@@ -18,6 +20,7 @@ from app.services.prompt_service import (
 from app.services.story_template_service import _get_story_template, _list_story_templates
 from app.utils.normalizers import (
     _normalize_command_result,
+    _normalize_cover_packaging_result,
     _normalize_story_engine_result,
     _normalize_story_review_result,
     _normalize_story_rewrite_result,
@@ -106,6 +109,9 @@ def run_agent_stage():
         "story_review",
         "story_rewrite",
         "title_packaging",
+        "cover_packaging",
+        "cover_image_generate",
+        "cover_image_query",
         "workshop",
         "storyboard",
         "command",
@@ -142,6 +148,17 @@ def run_agent_stage():
                 _title_packaging_prompt(payload),
             )
             result = _normalize_title_packaging_result(result)
+        elif stage == "cover_packaging":
+            result = _call_provider_json(
+                provider,
+                "你是短剧封面包装顾问，擅长输出封面标题、卖点文案、视觉方向和文生图提示词。",
+                _cover_packaging_prompt(payload),
+            )
+            result = _normalize_cover_packaging_result(result)
+        elif stage == "cover_image_generate":
+            result = _create_cover_image_task(payload)
+        elif stage == "cover_image_query":
+            result = _query_cover_image_task(str(payload.get("task_id", "") if isinstance(payload, dict) else ""))
         elif stage == "workshop":
             result = _call_provider_json(
                 provider,
@@ -167,6 +184,8 @@ def run_agent_stage():
             result = _export_markdown(payload)
 
         return jsonify({"ok": True, "stage": stage, "provider": provider, "result": result})
+    except requests.Timeout as e:
+        return jsonify({"ok": False, "error": "Model API request timed out", "detail": str(e)}), 504
     except requests.HTTPError as e:
         detail: Optional[str] = None
         if e.response is not None:

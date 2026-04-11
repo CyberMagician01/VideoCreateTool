@@ -7,16 +7,8 @@ def _utc_now_iso() -> str:
 
 
 def _default_project_state() -> Dict[str, Any]:
-    return {
-        "story_inputs": {
-            "idea": "",
-            "theme": "",
-            "tone": "",
-            "structure": "",
-            "template_id": "",
-        },
-        "story_card": None,
-        "review_lab": {
+    def _empty_review_lab(stage: str) -> Dict[str, Any]:
+        return {
             "latest_review": {
                 "summary": "",
                 "overall_score": 0,
@@ -26,8 +18,48 @@ def _default_project_state() -> Dict[str, Any]:
                 "low_score_dimensions": [],
             },
             "rewrite_candidates": [],
-            "last_review_stage": "",
+            "last_review_stage": stage,
             "last_review_time": "",
+        }
+
+    return {
+        "story_inputs": {
+            "idea": "",
+            "theme": "",
+            "tone": "",
+            "structure": "",
+            "template_id": "",
+        },
+        "story_card": None,
+        "review_labs": {
+            "story_engine": _empty_review_lab("story_engine"),
+            "workshop": _empty_review_lab("workshop"),
+            "storyboard": _empty_review_lab("storyboard"),
+        },
+        "review_panel_state": {
+            "story_engine": False,
+            "workshop": False,
+            "storyboard": False,
+        },
+        "cover_lab": {
+            "current_title": "",
+            "style_preference": "",
+            "focus_point": "",
+            "summary": "",
+            "main_title": "",
+            "subtitle": "",
+            "hook_lines": [],
+            "visual_direction": "",
+            "layout_direction": "",
+            "color_palette": "",
+            "image_prompt": "",
+            "generated_image_url": "",
+            "image_model": "",
+            "image_size": "",
+            "image_task_id": "",
+            "image_task_status": "",
+            "image_status_message": "",
+            "updated_at": "",
         },
         "title_lab": {
             "current_title": "",

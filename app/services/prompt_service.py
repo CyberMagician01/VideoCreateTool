@@ -420,6 +420,11 @@ def _title_packaging_prompt(payload: Dict[str, Any]) -> str:
     storyboard = payload.get("storyboard", {}) if isinstance(payload, dict) else {}
     current_title = payload.get("current_title", "") if isinstance(payload, dict) else ""
 
+    project_text = json.dumps(project, ensure_ascii=False)
+    story_card_text = json.dumps(story_card, ensure_ascii=False)
+    workshop_text = json.dumps(workshop, ensure_ascii=False)
+    storyboard_text = json.dumps(storyboard, ensure_ascii=False)
+
     return f"""
 你是短剧发行包装顾问，熟悉近一年主流短剧标题风格。
 请基于下面的剧本内容，输出一组适合短剧平台传播的标题建议、标题评分和话题标签。
@@ -433,19 +438,19 @@ def _title_packaging_prompt(payload: Dict[str, Any]) -> str:
 5. 话题标签要适合短视频/短剧平台分发。
 
 当前项目：
-{json.dumps(project, ensure_ascii=False, indent=2)}
+{project_text}
 
 当前标题（可为空）：
 {current_title}
 
 故事卡：
-{json.dumps(story_card, ensure_ascii=False, indent=2)}
+{story_card_text}
 
 剧本工坊：
-{json.dumps(workshop, ensure_ascii=False, indent=2)}
+{workshop_text}
 
 分镜工厂：
-{json.dumps(storyboard, ensure_ascii=False, indent=2)}
+{storyboard_text}
 
 评分维度说明：
 - eye_catch：抓眼度
@@ -498,9 +503,72 @@ JSON schema:
 }}
 
 额外要求：
-1. title_suggestions 输出 6-10 条。
+1. title_suggestions 输出 4-6 条。
 2. 如果当前标题为空，evaluated_title 也要输出，但 title 和 verdict 要明确说明“暂无当前标题，仅基于剧本判断建议方向”。
-3. topic_tags 输出 6-10 个，统一带 #。
+3. topic_tags 输出 4-6 个，统一带 #。
+""".strip()
+
+
+def _cover_packaging_prompt(payload: Dict[str, Any]) -> str:
+    project = payload.get("project", {}) if isinstance(payload, dict) else {}
+    story_card = payload.get("story_card", {}) if isinstance(payload, dict) else {}
+    workshop = payload.get("workshop", {}) if isinstance(payload, dict) else {}
+    storyboard = payload.get("storyboard", {}) if isinstance(payload, dict) else {}
+    current_title = payload.get("current_title", "") if isinstance(payload, dict) else ""
+    style_preference = payload.get("style_preference", "") if isinstance(payload, dict) else ""
+    focus_point = payload.get("focus_point", "") if isinstance(payload, dict) else ""
+
+    return f"""
+你是短剧封面包装顾问，擅长把短剧卖点转成封面文案与视觉方向。
+请基于下面内容，输出一个可直接用于做封面的策划方案。
+要求严格输出 JSON，不要输出 markdown，不要附加解释。
+
+封面目标：
+1. 一眼看懂人物关系、冲突或爽点。
+2. 文案适合短剧封面，不要写成长文标题党段落。
+3. 视觉方向要能直接交给设计师或文生图工具。
+4. 优先突出最能吸引点击的一个核心卖点。
+
+当前项目：
+{json.dumps(project, ensure_ascii=False)}
+
+当前标题：
+{current_title}
+
+封面风格偏好：
+{style_preference}
+
+封面主打点：
+{focus_point}
+
+故事卡：
+{json.dumps(story_card, ensure_ascii=False)}
+
+剧本工坊：
+{json.dumps(workshop, ensure_ascii=False)}
+
+分镜工厂：
+{json.dumps(storyboard, ensure_ascii=False)}
+
+JSON schema:
+{{
+  "current_title": "{current_title}",
+  "style_preference": "{style_preference}",
+  "focus_point": "{focus_point}",
+  "summary": "一句话总结这张封面应该怎么打",
+  "main_title": "封面主标题",
+  "subtitle": "封面副标题或补充文案",
+  "hook_lines": ["封面短句1", "封面短句2", "封面短句3"],
+  "visual_direction": "主视觉方向，包含人物状态、关系张力、场景气质",
+  "layout_direction": "排版建议，说明标题、人物、冲突信息怎么放",
+  "color_palette": "建议色调，例如冷黑红、豪门金黑、清冷蓝灰",
+  "image_prompt": "可直接用于文生图的中文封面提示词"
+}}
+
+额外要求：
+1. hook_lines 输出 2-4 条，短、狠、能上封面。
+2. main_title 和 subtitle 都要适合封面排版，不要太长。
+3. image_prompt 必须包含人物关系、情绪、构图、光线、风格关键词。
 """.strip()
 
 

@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/style.css?v=20260409_review_2" />
+    <link rel="stylesheet" href="/static/style.css?v=20260410_cover_4" />
   </head>
   <body>
     <div class="bg-shape bg-shape-1"></div>
@@ -77,6 +77,19 @@
       </div>
     </div>
 
+    <div id="cover-image-modal" class="cover-image-modal">
+      <div class="cover-image-dialog">
+        <div class="cover-image-dialog-head">
+          <h3>短剧封面预览</h3>
+          <button id="btn-cover-image-modal-close" class="secondary" type="button">关闭</button>
+        </div>
+        <p id="cover-image-modal-status" class="hint">暂无封面</p>
+        <div class="cover-image-modal-body">
+          <img id="cover-image-modal-preview" alt="短剧封面大图预览" />
+        </div>
+      </div>
+    </div>
+
     <main class="container">
       <nav class="top-nav">
         <a href="/" class="brand" aria-label="AIT 首页">
@@ -111,6 +124,33 @@
             </div>
           </div>
           <pre id="title-pack-output" class="output" style="margin-top: 12px;"></pre>
+        </div>
+
+        <div class="panel soft" style="margin-bottom: 18px;">
+          <h3 style="margin-top: 0;">短剧封面策划</h3>
+          <div class="grid two" style="align-items: end;">
+            <div>
+              <label for="cover-style-input">封面风格偏好（可选）</label>
+              <input id="cover-style-input" type="text" placeholder="例如：豪门金黑、冷感悬疑、强反差人物特写" />
+            </div>
+            <div>
+              <label for="cover-focus-input">封面主打点（可选）</label>
+              <input id="cover-focus-input" type="text" placeholder="例如：身份反转、追妻火葬场、记者追凶" />
+            </div>
+          </div>
+          <div style="margin-top: 12px;">
+            <button id="btn-cover-packaging">生成短剧封面策划</button>
+            <button id="btn-cover-image" class="secondary" style="margin-left: 8px;">一键生成封面</button>
+          </div>
+          <div class="cover-image-toolbar">
+            <span id="cover-image-run-status" class="hint">未开始生成封面</span>
+            <button id="btn-cover-image-preview" class="secondary" type="button" style="display:none;">查看封面</button>
+          </div>
+          <pre id="cover-pack-output" class="output" style="margin-top: 12px;"></pre>
+          <div id="cover-image-preview-wrap" class="cover-image-preview-wrap" style="display:none;">
+            <div class="hint" style="margin-bottom:8px;">已生成封面，并同步为当前项目封面。</div>
+            <img id="cover-image-preview" alt="短剧封面预览" style="width:100%; max-width:320px; border-radius:14px; border:1px solid rgba(0,0,0,0.08); box-shadow:0 10px 30px rgba(0,0,0,0.08);" />
+          </div>
         </div>
         
         <div class="grid two" style="margin-bottom: 20px;">
@@ -170,6 +210,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260409_review_3"></script>
+    <script src="/static/app.js?v=20260410_cover_4"></script>
   </body>
 </html>

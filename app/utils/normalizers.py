@@ -154,6 +154,32 @@ def _normalize_title_packaging_result(result: Any) -> Dict[str, Any]:
     }
 
 
+def _normalize_cover_packaging_result(result: Any) -> Dict[str, Any]:
+    base = _default_project_state()["cover_lab"]
+    if not isinstance(result, dict):
+        return base
+    return {
+        "current_title": _as_text(result.get("current_title")),
+        "style_preference": _as_text(result.get("style_preference")),
+        "focus_point": _as_text(result.get("focus_point")),
+        "summary": _as_text(result.get("summary")),
+        "main_title": _as_text(result.get("main_title")),
+        "subtitle": _as_text(result.get("subtitle")),
+        "hook_lines": _string_list(result.get("hook_lines")),
+        "visual_direction": _as_text(result.get("visual_direction")),
+        "layout_direction": _as_text(result.get("layout_direction")),
+        "color_palette": _as_text(result.get("color_palette")),
+        "image_prompt": _as_text(result.get("image_prompt")),
+        "generated_image_url": _as_text(result.get("generated_image_url")),
+        "image_model": _as_text(result.get("image_model")),
+        "image_size": _as_text(result.get("image_size")),
+        "image_task_id": _as_text(result.get("image_task_id")),
+        "image_task_status": _as_text(result.get("image_task_status")),
+        "image_status_message": _as_text(result.get("image_status_message")),
+        "updated_at": _as_text(result.get("updated_at")),
+    }
+
+
 def _normalize_review_dimension(dimension: Any, index: int) -> Optional[Dict[str, Any]]:
     if not isinstance(dimension, dict):
         return None
@@ -171,7 +197,7 @@ def _normalize_review_dimension(dimension: Any, index: int) -> Optional[Dict[str
 
 
 def _normalize_story_review_result(result: Any) -> Dict[str, Any]:
-    base = _default_project_state()["review_lab"]["latest_review"]
+    base = _default_project_state()["review_labs"]["story_engine"]["latest_review"]
     if not isinstance(result, dict):
         return base
 
@@ -251,8 +277,8 @@ def _normalize_story_rewrite_result(result: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_review_lab_state(review_lab: Any) -> Dict[str, Any]:
-    base = _default_project_state()["review_lab"]
+def _normalize_single_review_lab_state(review_lab: Any, stage: str = "") -> Dict[str, Any]:
+    base = _default_project_state()["review_labs"]["story_engine"]
     if not isinstance(review_lab, dict):
         return base
     latest_review = _normalize_story_review_result(review_lab.get("latest_review"))
@@ -260,8 +286,38 @@ def _normalize_review_lab_state(review_lab: Any) -> Dict[str, Any]:
     return {
         "latest_review": latest_review,
         "rewrite_candidates": rewrite_data.get("candidates", []),
-        "last_review_stage": _as_text(review_lab.get("last_review_stage")),
+        "last_review_stage": _as_text(review_lab.get("last_review_stage")) or stage,
         "last_review_time": _as_text(review_lab.get("last_review_time")),
+    }
+
+
+def _normalize_review_labs_state(review_labs: Any, legacy_review_lab: Any = None) -> Dict[str, Any]:
+    result = {
+        "story_engine": _normalize_single_review_lab_state(None, "story_engine"),
+        "workshop": _normalize_single_review_lab_state(None, "workshop"),
+        "storyboard": _normalize_single_review_lab_state(None, "storyboard"),
+    }
+
+    if isinstance(review_labs, dict):
+        for stage in ("story_engine", "workshop", "storyboard"):
+            result[stage] = _normalize_single_review_lab_state(review_labs.get(stage), stage)
+
+    if isinstance(legacy_review_lab, dict):
+        legacy_stage = _as_text(legacy_review_lab.get("last_review_stage"))
+        target_stage = legacy_stage if legacy_stage in result else "story_engine"
+        result[target_stage] = _normalize_single_review_lab_state(legacy_review_lab, target_stage)
+
+    return result
+
+
+def _normalize_review_panel_state(panel_state: Any) -> Dict[str, bool]:
+    base = _default_project_state()["review_panel_state"]
+    if not isinstance(panel_state, dict):
+        return base
+    return {
+        "story_engine": bool(panel_state.get("story_engine", base["story_engine"])),
+        "workshop": bool(panel_state.get("workshop", base["workshop"])),
+        "storyboard": bool(panel_state.get("storyboard", base["storyboard"])),
     }
 
 
@@ -476,7 +532,14 @@ def _normalize_project_state(state: Any) -> Dict[str, Any]:
     return {
         "story_inputs": _normalize_story_inputs(state.get("story_inputs") if isinstance(state, dict) else None),
         "story_card": _normalize_story_card(state.get("story_card")) if isinstance(state, dict) else None,
-        "review_lab": _normalize_review_lab_state(state.get("review_lab") if isinstance(state, dict) else None),
+        "review_labs": _normalize_review_labs_state(
+            state.get("review_labs") if isinstance(state, dict) else None,
+            state.get("review_lab") if isinstance(state, dict) else None,
+        ),
+        "review_panel_state": _normalize_review_panel_state(
+            state.get("review_panel_state") if isinstance(state, dict) else None
+        ),
+        "cover_lab": _normalize_cover_packaging_result(state.get("cover_lab") if isinstance(state, dict) else None),
         "title_lab": _normalize_title_packaging_result(state.get("title_lab") if isinstance(state, dict) else None),
         "workshop": _normalize_workshop_result(state.get("workshop")) if isinstance(state, dict) else None,
         "storyboard": _normalize_storyboard_result(state.get("storyboard")) if isinstance(state, dict) else None,

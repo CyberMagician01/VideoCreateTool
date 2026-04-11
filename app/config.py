@@ -8,6 +8,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "projects.db"
 
+
+def _env_int(name: str, default: int) -> int:
+    value = str(os.getenv(name, str(default))).strip()
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
 QINIU_AK = os.getenv("QINIU_AK", os.getenv("AK", "")).strip()
 QINIU_SK = os.getenv("QINIU_SK", os.getenv("SK", "")).strip()
 
@@ -26,6 +34,14 @@ QINIU_LLM_BASE_URL = os.getenv(
     "QINIU_LLM_BASE_URL",
     os.getenv("QWEN_BASE_URL", os.getenv("OPENAI_BASE_URL", "")),
 ).strip()
+QINIU_LLM_TIMEOUT = _env_int("QINIU_LLM_TIMEOUT", 120)
+QINIU_LLM_TIMEOUT_RETRIES = _env_int("QINIU_LLM_TIMEOUT_RETRIES", 1)
+QINIU_IMAGE_MODEL = os.getenv("QINIU_IMAGE_MODEL", "").strip()
+QINIU_IMAGE_BASE_URL = os.getenv("QINIU_IMAGE_BASE_URL", QINIU_LLM_BASE_URL).strip()
+QINIU_IMAGE_GENERATE_PATH = os.getenv("QINIU_IMAGE_GENERATE_PATH", "/images/generations").strip()
+QINIU_IMAGE_TASK_PATH_TEMPLATE = os.getenv("QINIU_IMAGE_TASK_PATH_TEMPLATE", "/images/tasks/{task_id}").strip()
+QINIU_IMAGE_SIZE = os.getenv("QINIU_IMAGE_SIZE", "1024x1536").strip()
+QINIU_IMAGE_RESPONSE_FORMAT = os.getenv("QINIU_IMAGE_RESPONSE_FORMAT", "url").strip().lower()
 
 QINIU_VIDEO_MODEL = os.getenv("QINIU_VIDEO_MODEL", os.getenv("WAN_MODEL", "wan2.6-t2v"))
 QINIU_VIDEO_BASE_URL = os.getenv(

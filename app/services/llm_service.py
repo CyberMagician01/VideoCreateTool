@@ -9,6 +9,8 @@ from app.config import (
     MODEL_PROVIDERS,
     QINIU_AK,
     QINIU_SK,
+    QINIU_LLM_TIMEOUT,
+    QINIU_LLM_TIMEOUT_RETRIES,
     QINIU_TEXT_API_KEY,
     QINIU_LLM_FALLBACK_MODELS,
 )
@@ -19,6 +21,36 @@ _NO_PROXY_SESSION.trust_env = False
 
 def _request_no_proxy(method: str, url: str, **kwargs: Any) -> requests.Response:
     return _NO_PROXY_SESSION.request(method=method, url=url, **kwargs)
+
+
+def _request_chat_completion(url: str, headers: Dict[str, str], body: Dict[str, Any]) -> Dict[str, Any]:
+    last_error: Optional[Exception] = None
+    retry_count = max(QINIU_LLM_TIMEOUT_RETRIES, 0)
+    timeout_sec = max(QINIU_LLM_TIMEOUT, 1)
+
+    for attempt in range(retry_count + 1):
+        try:
+            response = _request_no_proxy(
+                "POST",
+                url,
+                headers=headers,
+                json=body,
+                timeout=timeout_sec,
+                verify=False,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.Timeout as e:
+            last_error = e
+            if attempt >= retry_count:
+                break
+
+    if last_error:
+        raise requests.ReadTimeout(
+            f"LLM request timed out after {timeout_sec}s (retried {retry_count} times)"
+        ) from last_error
+
+    raise RuntimeError("Model request failed")
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -165,9 +197,7 @@ def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt:
         }
 
         try:
-            response = _request_no_proxy("POST", url, headers=headers, json=body, timeout=60, verify=False)
-            response.raise_for_status()
-            data = response.json()
+            data = _request_chat_completion(url, headers, body)
             content = data["choices"][0]["message"]["content"]
             return _extract_json(content)
         except requests.HTTPError as e:
@@ -176,6 +206,9 @@ def _call_openai_compatible_json(provider_config: Dict[str, Any], system_prompt:
             if "no available channels for model" in detail:
                 continue
             raise
+        except requests.Timeout as e:
+            last_error = e
+            continue
 
     if last_error:
         raise last_error
@@ -210,9 +243,7 @@ def _call_openai_compatible_text(provider_config: Dict[str, Any], system_prompt:
         }
 
         try:
-            response = _request_no_proxy("POST", url, headers=headers, json=body, timeout=60, verify=False)
-            response.raise_for_status()
-            data = response.json()
+            data = _request_chat_completion(url, headers, body)
             return data["choices"][0]["message"]["content"].strip()
         except requests.HTTPError as e:
             last_error = e
@@ -220,6 +251,9 @@ def _call_openai_compatible_text(provider_config: Dict[str, Any], system_prompt:
             if "no available channels for model" in detail:
                 continue
             raise
+        except requests.Timeout as e:
+            last_error = e
+            continue
 
     if last_error:
         raise last_error
