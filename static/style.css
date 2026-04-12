@@ -24,9 +24,11 @@ body {
   overflow-x: hidden;
 }
 
-h1, h2, h3 {
-    font-family: "SimSun", "宋体", serif;
-    margin-top: 0;
+h1,
+h2,
+h3 {
+  font-family: "SimSun", "宋体", serif;
+  margin-top: 0;
 }
 
 h3 {
@@ -44,7 +46,7 @@ h3 {
 .project-drawer-toggle {
   position: fixed;
   left: 14px;
-  top: 18px;
+  top: 88px;
   width: 60px;
   height: 60px;
   border-radius: 50%;
@@ -647,11 +649,53 @@ button.is-loading {
 
 .cost-widget {
   position: fixed;
-  top: 18px;
+  top: 88px;
   right: 18px;
   z-index: 1200;
   width: min(340px, calc(100vw - 36px));
   pointer-events: none;
+}
+
+.billing-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.billing-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 18px;
+}
+
+.billing-card h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.billing-card-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.billing-card-row>div {
+  padding: 12px;
+  border: 1px solid rgba(60, 50, 40, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.billing-card-row strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+
+.billing-records {
+  display: grid;
+  gap: 12px;
 }
 
 .cost-widget-toggle,
@@ -855,6 +899,7 @@ input[readonly] {
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -1070,6 +1115,7 @@ input[readonly] {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);

@@ -21,3 +21,7 @@ def export_center():
 @page_bp.get("/video-lab")
 def video_lab():
     return render_template("video_lab.html")
+
+@page_bp.get("/billing")
+def billing():
+    return render_template("billing.html")

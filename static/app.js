@@ -436,52 +436,52 @@ function normalizeReviewLab(reviewLab) {
   const latest = (parsed.latest_review && typeof parsed.latest_review === 'object') ? parsed.latest_review : {};
   const dimensions = Array.isArray(latest.dimensions)
     ? latest.dimensions
-        .map((item, index) => {
-          if (!item || typeof item !== 'object') {
-            return null;
-          }
-          return {
-            id: toText(item.id) || `dimension_${index + 1}`,
-            name: toText(item.name) || `维度${index + 1}`,
-            score: Math.max(0, Math.min(100, toInt(item.score, 0, 0))),
-            reason: toText(item.reason),
-            suggestion: toText(item.suggestion),
-          };
-        })
-        .filter(Boolean)
+      .map((item, index) => {
+        if (!item || typeof item !== 'object') {
+          return null;
+        }
+        return {
+          id: toText(item.id) || `dimension_${index + 1}`,
+          name: toText(item.name) || `维度${index + 1}`,
+          score: Math.max(0, Math.min(100, toInt(item.score, 0, 0))),
+          reason: toText(item.reason),
+          suggestion: toText(item.suggestion),
+        };
+      })
+      .filter(Boolean)
     : [];
 
   const rewriteCandidates = Array.isArray(parsed.rewrite_candidates)
     ? parsed.rewrite_candidates
-        .map((item, index) => {
-          if (!item || typeof item !== 'object') {
-            return null;
-          }
-          const target = ['story_card', 'workshop', 'storyboard'].includes(toText(item.target))
-            ? toText(item.target)
-            : 'story_card';
-          const storyCard = normalizeStoryCard(item.story_card);
-          const workshop = normalizeWorkshopData(item.workshop);
-          const storyboard = normalizeStoryboardData(item.storyboard);
-          const hasPayload =
-            (target === 'story_card' && storyCard) ||
-            (target === 'workshop' && workshop) ||
-            (target === 'storyboard' && storyboard);
-          if (!hasPayload) {
-            return null;
-          }
-          return {
-            id: toText(item.id) || `rewrite_${index + 1}`,
-            title: toText(item.title) || `改写版本 ${index + 1}`,
-            strategy: toText(item.strategy),
-            focus_dimensions: normalizeStringList(item.focus_dimensions),
-            target,
-            story_card: storyCard,
-            workshop,
-            storyboard,
-          };
-        })
-        .filter(Boolean)
+      .map((item, index) => {
+        if (!item || typeof item !== 'object') {
+          return null;
+        }
+        const target = ['story_card', 'workshop', 'storyboard'].includes(toText(item.target))
+          ? toText(item.target)
+          : 'story_card';
+        const storyCard = normalizeStoryCard(item.story_card);
+        const workshop = normalizeWorkshopData(item.workshop);
+        const storyboard = normalizeStoryboardData(item.storyboard);
+        const hasPayload =
+          (target === 'story_card' && storyCard) ||
+          (target === 'workshop' && workshop) ||
+          (target === 'storyboard' && storyboard);
+        if (!hasPayload) {
+          return null;
+        }
+        return {
+          id: toText(item.id) || `rewrite_${index + 1}`,
+          title: toText(item.title) || `改写版本 ${index + 1}`,
+          strategy: toText(item.strategy),
+          focus_dimensions: normalizeStringList(item.focus_dimensions),
+          target,
+          story_card: storyCard,
+          workshop,
+          storyboard,
+        };
+      })
+      .filter(Boolean)
     : [];
 
   return {
@@ -506,67 +506,67 @@ function normalizeWorkshopData(workshop) {
 
   const characters = Array.isArray(workshop.characters)
     ? workshop.characters
-        .map((character) => {
-          if (!character || typeof character !== 'object') {
-            return null;
-          }
-          const normalized = {
-            name: toText(character.name || character.character_name),
-            tags: normalizeStringList(character.tags || character.labels),
-            motivation: toText(character.motivation || character.goal),
-            arc: toText(character.arc || character.character_arc),
-          };
-          return normalized.name ? normalized : null;
-        })
-        .filter(Boolean)
+      .map((character) => {
+        if (!character || typeof character !== 'object') {
+          return null;
+        }
+        const normalized = {
+          name: toText(character.name || character.character_name),
+          tags: normalizeStringList(character.tags || character.labels),
+          motivation: toText(character.motivation || character.goal),
+          arc: toText(character.arc || character.character_arc),
+        };
+        return normalized.name ? normalized : null;
+      })
+      .filter(Boolean)
     : [];
 
   const relationships = Array.isArray(workshop.relationships)
     ? workshop.relationships
-        .map((relationship) => {
-          if (!relationship || typeof relationship !== 'object') {
-            return null;
-          }
-          const normalized = {
-            from: toText(relationship.from || relationship.source || relationship.from_character),
-            to: toText(relationship.to || relationship.target || relationship.to_character),
-            type: toText(relationship.type || relationship.relationship || relationship.relation),
-            tension: toText(relationship.tension || relationship.conflict),
-          };
-          return normalized.from && normalized.to ? normalized : null;
-        })
-        .filter(Boolean)
+      .map((relationship) => {
+        if (!relationship || typeof relationship !== 'object') {
+          return null;
+        }
+        const normalized = {
+          from: toText(relationship.from || relationship.source || relationship.from_character),
+          to: toText(relationship.to || relationship.target || relationship.to_character),
+          type: toText(relationship.type || relationship.relationship || relationship.relation),
+          tension: toText(relationship.tension || relationship.conflict),
+        };
+        return normalized.from && normalized.to ? normalized : null;
+      })
+      .filter(Boolean)
     : [];
 
   const plotNodes = Array.isArray(workshop.plot_nodes)
     ? workshop.plot_nodes
-        .map((node, index) => {
-          if (!node || typeof node !== 'object') {
-            return null;
-          }
-          const normalized = {
-            id: toText(node.id || node.node_id) || `N${index + 1}`,
-            template_stage: toText(node.template_stage || node.phase || node.stage),
-            summary: toText(node.summary || node.plot || node.content || node.scene_summary),
-            location: toText(node.location || node.scene_location),
-            action_draft: toText(node.action_draft || node.action || node.action_description),
-            dialogue_draft: normalizeStringList(node.dialogue_draft || node.dialogue || node.dialogues),
-            emotion_shift: toText(node.emotion_shift || node.emotional_shift || node.emotion),
-            consistency_check: toText(node.consistency_check || node.logic_check || node.consistency),
-          };
-          return (
-            normalized.template_stage ||
-            normalized.summary ||
-            normalized.location ||
-            normalized.action_draft ||
-            normalized.dialogue_draft.length ||
-            normalized.emotion_shift ||
-            normalized.consistency_check
-          )
-            ? normalized
-            : null;
-        })
-        .filter(Boolean)
+      .map((node, index) => {
+        if (!node || typeof node !== 'object') {
+          return null;
+        }
+        const normalized = {
+          id: toText(node.id || node.node_id) || `N${index + 1}`,
+          template_stage: toText(node.template_stage || node.phase || node.stage),
+          summary: toText(node.summary || node.plot || node.content || node.scene_summary),
+          location: toText(node.location || node.scene_location),
+          action_draft: toText(node.action_draft || node.action || node.action_description),
+          dialogue_draft: normalizeStringList(node.dialogue_draft || node.dialogue || node.dialogues),
+          emotion_shift: toText(node.emotion_shift || node.emotional_shift || node.emotion),
+          consistency_check: toText(node.consistency_check || node.logic_check || node.consistency),
+        };
+        return (
+          normalized.template_stage ||
+          normalized.summary ||
+          normalized.location ||
+          normalized.action_draft ||
+          normalized.dialogue_draft.length ||
+          normalized.emotion_shift ||
+          normalized.consistency_check
+        )
+          ? normalized
+          : null;
+      })
+      .filter(Boolean)
     : [];
 
   const availableIds = new Set(plotNodes.map((node) => node.id));
@@ -577,17 +577,17 @@ function normalizeWorkshopData(workshop) {
 
   const cardWallGroups = Array.isArray(workshop.card_wall_groups)
     ? workshop.card_wall_groups
-        .map((group) => {
-          if (!group || typeof group !== 'object') {
-            return null;
-          }
-          const normalized = {
-            group: toText(group.group || group.name || group.title),
-            node_ids: normalizeStringList(group.node_ids || group.ids).filter((id) => availableIds.has(id)),
-          };
-          return normalized.group || normalized.node_ids.length ? normalized : null;
-        })
-        .filter(Boolean)
+      .map((group) => {
+        if (!group || typeof group !== 'object') {
+          return null;
+        }
+        const normalized = {
+          group: toText(group.group || group.name || group.title),
+          node_ids: normalizeStringList(group.node_ids || group.ids).filter((id) => availableIds.has(id)),
+        };
+        return normalized.group || normalized.node_ids.length ? normalized : null;
+      })
+      .filter(Boolean)
     : [];
 
   if (characters.length || relationships.length || plotNodes.length || cardWallGroups.length) {
@@ -620,38 +620,38 @@ function normalizeStoryboardData(storyboard) {
 
   const storyboards = Array.isArray(storyboard.storyboards)
     ? storyboard.storyboards
-        .map((shot, index) => {
-          if (!shot || typeof shot !== 'object') {
-            return null;
-          }
-          const normalized = {
-            shot_id: toText(shot.shot_id || shot.id) || `S${index + 1}`,
-            related_node_id: toText(shot.related_node_id || shot.node_id || shot.plot_node_id),
-            shot_type: toText(shot.shot_type || shot.camera_size),
-            camera_movement: toText(shot.camera_movement || shot.movement || shot.camera_motion),
-            visual_description: toText(
-              shot.visual_description || shot.visual || shot.image_description || shot.description,
-            ),
-            dialogue_or_sfx: toText(shot.dialogue_or_sfx || shot.dialogue || shot.sound_design || shot.audio),
-            duration_sec: toInt(shot.duration_sec || shot.duration || shot.estimated_duration, 4, 1),
-            shooting_note: toText(shot.shooting_note || shot.note || shot.production_note),
-            prompt_draft: toText(shot.prompt_draft || shot.video_prompt || shot.prompt || shot.visual_prompt),
-          };
-          if (!normalized.prompt_draft) {
-            normalized.prompt_draft = deriveStoryboardPrompt(normalized);
-          }
-          return (
-            normalized.related_node_id ||
-            normalized.shot_type ||
-            normalized.camera_movement ||
-            normalized.visual_description ||
-            normalized.dialogue_or_sfx ||
-            normalized.prompt_draft
-          )
-            ? normalized
-            : null;
-        })
-        .filter(Boolean)
+      .map((shot, index) => {
+        if (!shot || typeof shot !== 'object') {
+          return null;
+        }
+        const normalized = {
+          shot_id: toText(shot.shot_id || shot.id) || `S${index + 1}`,
+          related_node_id: toText(shot.related_node_id || shot.node_id || shot.plot_node_id),
+          shot_type: toText(shot.shot_type || shot.camera_size),
+          camera_movement: toText(shot.camera_movement || shot.movement || shot.camera_motion),
+          visual_description: toText(
+            shot.visual_description || shot.visual || shot.image_description || shot.description,
+          ),
+          dialogue_or_sfx: toText(shot.dialogue_or_sfx || shot.dialogue || shot.sound_design || shot.audio),
+          duration_sec: toInt(shot.duration_sec || shot.duration || shot.estimated_duration, 4, 1),
+          shooting_note: toText(shot.shooting_note || shot.note || shot.production_note),
+          prompt_draft: toText(shot.prompt_draft || shot.video_prompt || shot.prompt || shot.visual_prompt),
+        };
+        if (!normalized.prompt_draft) {
+          normalized.prompt_draft = deriveStoryboardPrompt(normalized);
+        }
+        return (
+          normalized.related_node_id ||
+          normalized.shot_type ||
+          normalized.camera_movement ||
+          normalized.visual_description ||
+          normalized.dialogue_or_sfx ||
+          normalized.prompt_draft
+        )
+          ? normalized
+          : null;
+      })
+      .filter(Boolean)
     : [];
 
   const estimatedTotalDuration = toInt(
@@ -695,20 +695,20 @@ function normalizeVideoState(videoLab) {
 
   const longSegments = Array.isArray(videoLab.long_segments)
     ? videoLab.long_segments
-        .map((segment, index) => {
-          if (!segment || typeof segment !== 'object') {
-            return null;
-          }
-          return {
-            index: toInt(segment.index, index + 1, 1),
-            duration: toInt(segment.duration, 0, 0),
-            prompt: toText(segment.prompt),
-            task_id: toText(segment.task_id),
-            task_status: toText(segment.task_status),
-            video_url: toText(segment.video_url || segment.url),
-          };
-        })
-        .filter(Boolean)
+      .map((segment, index) => {
+        if (!segment || typeof segment !== 'object') {
+          return null;
+        }
+        return {
+          index: toInt(segment.index, index + 1, 1),
+          duration: toInt(segment.duration, 0, 0),
+          prompt: toText(segment.prompt),
+          task_id: toText(segment.task_id),
+          task_status: toText(segment.task_status),
+          video_url: toText(segment.video_url || segment.url),
+        };
+      })
+      .filter(Boolean)
     : [];
 
   return {
@@ -2543,7 +2543,7 @@ function renderRelationshipGraph() {
       if (params.nodes.length > 0) {
         const nodeName = String(params.nodes[0]);
         selectedRelationIndex = null;
-        
+
         if (draftRelationNodes.length === 0 || draftRelationNodes.length === 2) {
           draftRelationNodes = [nodeName];
         } else {
@@ -2615,9 +2615,9 @@ function syncTimelineToState() {
   if (!state.workshop) {
     return;
   }
-  
+
   pushVisualUndo();
-  
+
   const list = bind('timeline-list');
   if (!list) {
     return;
@@ -2674,12 +2674,12 @@ function refreshVisualEditors() {
 function formatStoryResult(result) {
   const sc = result.story_card || result || {};
   const nextQs = result.next_questions || [];
-  
+
   let text = `【一句话故事】\n${sc.logline || '-'}\n\n`;
   text += `【核心冲突】\n${sc.core_conflict || '-'}\n\n`;
   text += `【前三秒钩子】\n${sc.hook || '-'}\n\n`;
   text += `【属性】\n主题：${sc.theme || '-'}\n基调：${sc.tone || '-'}\n结构：${sc.structure_template || '-'}\n结局：${sc.ending_type || '-'}\n\n`;
-  
+
   text += `【结构锚点】\n`;
   text += `銆愮垎娆炬ā鏉裤€慭n${sc.viral_template_name || '未使用'}\n\n`;
   text += `銆愬紑鍦洪挬瀛愮瓥鐣ャ€慭n${sc.opening_hook_strategy || '-'}\n\n`;
@@ -2692,7 +2692,7 @@ function formatStoryResult(result) {
   } else {
     text += '-\n';
   }
-  
+
   text += `\n【建议追问】\n`;
   if (nextQs.length) {
     nextQs.forEach((q) => {
@@ -2891,8 +2891,8 @@ function renderReviewLab(statusText = '') {
 
   const dimsHtml = review.dimensions.length
     ? review.dimensions
-        .map(
-          (item) => `
+      .map(
+        (item) => `
             <div class="panel soft" style="padding:10px;">
               <div style="display:flex; justify-content:space-between; gap:12px;">
                 <strong>${item.name}</strong>
@@ -2902,8 +2902,8 @@ function renderReviewLab(statusText = '') {
               <div class="hint" style="margin-top:4px;">建议：${item.suggestion || '-'}</div>
             </div>
           `,
-        )
-        .join('')
+      )
+      .join('')
     : '<p class="hint">暂无评分结果</p>';
 
   const issuesHtml = review.top_issues.length
@@ -2916,8 +2916,8 @@ function renderReviewLab(statusText = '') {
 
   const candidateHtml = candidates.length
     ? candidates
-        .map(
-          (item) => `
+      .map(
+        (item) => `
             <article class="panel" style="padding:12px; margin-top:10px;">
               <h4 style="margin-bottom:6px;">${item.title}</h4>
               <div class="hint">应用范围：${reviewTargetLabel(item.target)}</div>
@@ -2927,8 +2927,8 @@ function renderReviewLab(statusText = '') {
               <button class="secondary" data-review-candidate-id="${item.id}">使用这个版本</button>
             </article>
           `,
-        )
-        .join('')
+      )
+      .join('')
     : '<p class="hint">当前没有自动改稿候选版本。</p>';
 
   panel.style.display = 'block';
@@ -3410,7 +3410,7 @@ function bindVisualActions() {
         setRelationStatus('请输入角色名称。');
         return;
       }
-      
+
       pushVisualUndo();
       state.workshop.characters = state.workshop.characters || [];
       if (!state.workshop.characters.find(c => c.name === charName)) {
@@ -3480,7 +3480,7 @@ function bindVisualActions() {
 
       const from = bind('rel-from-display')?.value.trim() || '';
       const to = bind('rel-to-display')?.value.trim() || '';
-      
+
       pushVisualUndo();
 
       if (selectedRelationIndex !== null && state.workshop.relationships[selectedRelationIndex]) {
@@ -5237,6 +5237,83 @@ function setCostPanelExpanded(expanded, { persist = true } = {}) {
   }
 }
 
+function getBillingSummary() {
+  const records = normalizeCostRecords(state.cost_records);
+  const summary = {
+    total: 0,
+    text: 0,
+    image: 0,
+    video: 0,
+    count: records.length,
+    last_used: records.length ? records[0].time || '' : '',
+  };
+  records.forEach((record) => {
+    const amount = costRecordAmount(record);
+    summary.total += amount;
+    if (record.cost_type === 'image') {
+      summary.image += amount;
+    } else if (record.cost_type === 'video') {
+      summary.video += amount;
+    } else {
+      summary.text += amount;
+    }
+  });
+  return summary;
+}
+
+function renderBillingPage() {
+  const summaryRoot = bind('billing-summary');
+  const recordsRoot = bind('billing-records');
+  const statusRoot = bind('billing-interface-status');
+  if (!summaryRoot || !recordsRoot) {
+    return;
+  }
+
+  const summary = getBillingSummary();
+  summaryRoot.innerHTML = `
+    <div class="billing-card-row">
+      <div><strong>累计成本</strong><div>${formatMoney(summary.total)}</div></div>
+      <div><strong>文本模型</strong><div>${formatMoney(summary.text)}</div></div>
+      <div><strong>图像模型</strong><div>${formatMoney(summary.image)}</div></div>
+      <div><strong>视频模型</strong><div>${formatMoney(summary.video)}</div></div>
+      <div><strong>记录条数</strong><div>${summary.count}</div></div>
+    </div>
+  `;
+
+  recordsRoot.innerHTML = summary.count
+    ? normalizeCostRecords(state.cost_records)
+      .slice()
+      .reverse()
+      .map((record) => `
+          <article class="cost-record">
+            <div class="cost-record-head">
+              <strong>${costStageLabel(record.stage)}</strong>
+              <span>${formatMoney(costRecordAmount(record))}</span>
+            </div>
+            <div>类型：${record.cost_type || 'text'}</div>
+            <div>模型：${record.final_model || record.primary_model || '-'}</div>
+            <div>实际：${formatMoney(record.actual_cost)} / 预估：${formatMoney(record.estimated_cost)}</div>
+            <div class="hint">时间：${record.time || '-'}</div>
+          </article>
+        `)
+      .join('')
+    : '<p class="hint">当前没有成本记录，先在其他页面生成内容即可。</p>';
+
+  if (statusRoot) {
+    statusRoot.textContent = '当前接口状态：付费接口未开通';
+  }
+}
+
+function bindBillingActions() {
+  bind('btn-billing-enable')?.addEventListener('click', () => {
+    const statusRoot = bind('billing-interface-status');
+    if (statusRoot) {
+      statusRoot.textContent = '当前接口状态：暂无真实付费逻辑，仅展示演示界面。';
+    }
+    window.alert('付费接口入口已启用演示模式，后端真实付费逻辑尚未接入。');
+  });
+}
+
 function renderCostWidget() {
   const total = bind('cost-widget-total');
   const list = bind('cost-widget-list');
@@ -5300,6 +5377,7 @@ function initCostWidget() {
         <strong>成本明细</strong>
         <div class="cost-widget-actions">
           <span class="hint">按最近使用倒序</span>
+          <button id="btn-billing-center" class="secondary cost-widget-clear" type="button">查看账单中心</button>
           <button id="btn-cost-clear" class="secondary cost-widget-clear" type="button">清零</button>
         </div>
       </div>
@@ -5310,6 +5388,9 @@ function initCostWidget() {
 
   bind('cost-widget-toggle')?.addEventListener('click', () => {
     setCostPanelExpanded(!state.cost_panel_expanded);
+  });
+  bind('btn-billing-center')?.addEventListener('click', () => {
+    window.location.href = '/billing';
   });
   bind('btn-cost-clear')?.addEventListener('click', clearCostRecords);
   renderCostWidget();
@@ -5356,6 +5437,7 @@ async function initApp() {
   bindTaskMetaActions();
   bindContentPlayerActions();
   initCostWidget();
+  bindBillingActions();
   bindWorkshopActions();
   bindVisualActions();
   bindExportActions();
@@ -5367,6 +5449,7 @@ async function initApp() {
   restoreOutputsOnPageLoad();
   refreshVisualEditors();
   loadProviders();
+  renderBillingPage();
 }
 
 window.addEventListener('beforeunload', () => {
