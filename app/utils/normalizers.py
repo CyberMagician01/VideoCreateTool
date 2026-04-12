@@ -10,6 +10,13 @@ from app.utils.helpers import (
 )
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _normalize_story_inputs(story_inputs: Any) -> Dict[str, Any]:
     base = _default_project_state()["story_inputs"]
     if not isinstance(story_inputs, dict):
@@ -614,6 +621,8 @@ def _normalize_video_lab_state(video_lab: Any) -> Dict[str, Any]:
 
 
 def _normalize_project_state(state: Any) -> Dict[str, Any]:
+    billing_wallet = state.get("billing_wallet") if isinstance(state, dict) else {}
+    billing_wallet = billing_wallet if isinstance(billing_wallet, dict) else {}
     return {
         "story_inputs": _normalize_story_inputs(state.get("story_inputs") if isinstance(state, dict) else None),
         "story_card": _normalize_story_card(state.get("story_card")) if isinstance(state, dict) else None,
@@ -630,6 +639,10 @@ def _normalize_project_state(state: Any) -> Dict[str, Any]:
         "task_meta_expanded": bool(state.get("task_meta_expanded", False)) if isinstance(state, dict) else False,
         "cost_records": _normalize_cost_records(state.get("cost_records") if isinstance(state, dict) else None),
         "cost_panel_expanded": bool(state.get("cost_panel_expanded", False)) if isinstance(state, dict) else False,
+        "billing_wallet": {
+            "enabled": bool(billing_wallet.get("enabled", False)),
+            "balance": max(0.0, _safe_float(billing_wallet.get("balance"), 0.0)),
+        },
         "workshop": _normalize_workshop_result(state.get("workshop")) if isinstance(state, dict) else None,
         "storyboard": _normalize_storyboard_result(state.get("storyboard")) if isinstance(state, dict) else None,
         "video_lab": _normalize_video_lab_state(state.get("video_lab") if isinstance(state, dict) else None),

@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'ai_short_drama_state_v1';
 const PROVIDER_KEY = 'ai_short_drama_provider_v1';
 const CURRENT_PROJECT_KEY = 'ai_short_drama_current_project_id_v1';
+const FLOATING_WIDGET_POSITIONS_KEY = 'ai_short_drama_floating_widget_positions_v1';
 const AUTO_SAVE_DELAY_MS = 3000;
 
 const EMPTY_STATE = {
@@ -59,6 +60,10 @@ const EMPTY_STATE = {
   task_meta_expanded: false,
   cost_records: [],
   cost_panel_expanded: false,
+  billing_wallet: {
+    enabled: false,
+    balance: 0,
+  },
   workshop: null,
   storyboard: null,
   video_lab: null,
@@ -90,6 +95,20 @@ function loadCurrentProjectId() {
 
 function saveCurrentProjectId(projectId) {
   localStorage.setItem(CURRENT_PROJECT_KEY, String(projectId || ''));
+}
+
+function loadFloatingWidgetPositions() {
+  try {
+    return JSON.parse(localStorage.getItem(FLOATING_WIDGET_POSITIONS_KEY) || '{}');
+  } catch (err) {
+    return {};
+  }
+}
+
+function saveFloatingWidgetPosition(name, position) {
+  const positions = loadFloatingWidgetPositions();
+  positions[name] = position;
+  localStorage.setItem(FLOATING_WIDGET_POSITIONS_KEY, JSON.stringify(positions));
 }
 
 function toText(value) {
@@ -430,6 +449,14 @@ function normalizeCostRecords(records) {
     .filter(Boolean);
 }
 
+function normalizeBillingWallet(wallet) {
+  const parsed = (wallet && typeof wallet === 'object') ? wallet : {};
+  return {
+    enabled: Boolean(parsed.enabled),
+    balance: Math.max(0, Number(parsed.balance || 0)),
+  };
+}
+
 function normalizeReviewLab(reviewLab) {
   const base = EMPTY_STATE.review_lab;
   const parsed = (reviewLab && typeof reviewLab === 'object') ? reviewLab : {};
@@ -738,6 +765,7 @@ let saveDebounceTimer = null;
 let stateDirty = false;
 let projectSaveInFlight = false;
 let projectDrawerOpen = false;
+let pendingBillingRechargeAmount = 0;
 
 let relationshipNetwork = null;
 let timelineSortable = null;
@@ -835,6 +863,7 @@ function normalizeState(input) {
     task_meta_expanded: Boolean(parsed.task_meta_expanded),
     cost_records: normalizeCostRecords(parsed.cost_records),
     cost_panel_expanded: Boolean(parsed.cost_panel_expanded),
+    billing_wallet: normalizeBillingWallet(parsed.billing_wallet),
     workshop: normalizeWorkshopData(parsed.workshop),
     storyboard: normalizeStoryboardData(parsed.storyboard),
     video_lab: normalizeVideoState(parsed.video_lab),
@@ -852,6 +881,7 @@ function applyState(newState) {
   state.task_meta_expanded = normalized.task_meta_expanded;
   state.cost_records = normalized.cost_records;
   state.cost_panel_expanded = normalized.cost_panel_expanded;
+  state.billing_wallet = normalized.billing_wallet;
   state.workshop = normalized.workshop;
   state.storyboard = normalized.storyboard;
   state.video_lab = normalized.video_lab;
@@ -905,6 +935,116 @@ function scheduleAutoSave() {
 
 function saveState() {
   markStateDirty();
+}
+
+function clampFloatingWidget(root, left, top) {
+  const rect = root.getBoundingClientRect();
+  const padding = 12;
+  return {
+    left: Math.min(Math.max(padding, left), Math.max(padding, window.innerWidth - rect.width - padding)),
+    top: Math.min(Math.max(padding, top), Math.max(padding, window.innerHeight - rect.height - padding)),
+  };
+}
+
+function applyFloatingWidgetPosition(root, position) {
+  if (!root || !position) {
+    return;
+  }
+  const next = clampFloatingWidget(root, Number(position.left || 0), Number(position.top || 0));
+  root.style.left = `${next.left}px`;
+  root.style.top = `${next.top}px`;
+  root.style.right = 'auto';
+  root.style.bottom = 'auto';
+}
+
+function makeFloatingWidgetDraggable(root, handle, storageName) {
+  if (!root || !handle) {
+    return;
+  }
+  const savedPosition = loadFloatingWidgetPositions()[storageName];
+  applyFloatingWidgetPosition(root, savedPosition);
+
+  let dragging = false;
+  let moved = false;
+  let suppressClick = false;
+  let startX = 0;
+  let startY = 0;
+  let startLeft = 0;
+  let startTop = 0;
+
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const rect = root.getBoundingClientRect();
+    dragging = true;
+    moved = false;
+    startX = event.clientX;
+    startY = event.clientY;
+    startLeft = rect.left;
+    startTop = rect.top;
+    root.classList.add('is-dragging');
+    handle.setPointerCapture(event.pointerId);
+  });
+
+  handle.addEventListener('pointermove', (event) => {
+    if (!dragging) {
+      return;
+    }
+    const deltaX = event.clientX - startX;
+    const deltaY = event.clientY - startY;
+    if (Math.abs(deltaX) + Math.abs(deltaY) > 4) {
+      moved = true;
+    }
+    if (!moved) {
+      return;
+    }
+    const next = clampFloatingWidget(root, startLeft + deltaX, startTop + deltaY);
+    root.style.left = `${next.left}px`;
+    root.style.top = `${next.top}px`;
+    root.style.right = 'auto';
+    root.style.bottom = 'auto';
+  });
+
+  handle.addEventListener('pointerup', (event) => {
+    if (!dragging) {
+      return;
+    }
+    dragging = false;
+    root.classList.remove('is-dragging');
+    if (handle.hasPointerCapture(event.pointerId)) {
+      handle.releasePointerCapture(event.pointerId);
+    }
+    if (moved) {
+      const rect = root.getBoundingClientRect();
+      const next = clampFloatingWidget(root, rect.left, rect.top);
+      saveFloatingWidgetPosition(storageName, next);
+      suppressClick = true;
+      setTimeout(() => {
+        suppressClick = false;
+      }, 0);
+    }
+  });
+
+  handle.addEventListener('pointercancel', () => {
+    dragging = false;
+    root.classList.remove('is-dragging');
+  });
+
+  handle.addEventListener('click', (event) => {
+    if (!suppressClick) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+
+  window.addEventListener('resize', () => {
+    const rect = root.getBoundingClientRect();
+    const next = clampFloatingWidget(root, rect.left, rect.top);
+    applyFloatingWidgetPosition(root, next);
+    saveFloatingWidgetPosition(storageName, next);
+  });
 }
 
 function clearOutputsByPage() {
@@ -3290,6 +3430,7 @@ function initGlobalCommandWidget() {
       setOpen(true);
       input?.focus();
     });
+    makeFloatingWidgetDraggable(root, fab, 'global_command_widget');
   }
   if (closeBtn) {
     closeBtn.addEventListener('click', () => setOpen(false));
@@ -5220,6 +5361,7 @@ function clearCostRecords() {
   state.cost_records = [];
   saveState();
   renderCostWidget();
+  renderBillingPage();
 }
 
 function setCostPanelExpanded(expanded, { persist = true } = {}) {
@@ -5261,15 +5403,159 @@ function getBillingSummary() {
   return summary;
 }
 
+function getBillingStageSummary() {
+  const stageMap = new Map();
+  normalizeCostRecords(state.cost_records).forEach((record) => {
+    const stage = costStageLabel(record.stage);
+    const amount = costRecordAmount(record);
+    stageMap.set(stage, (stageMap.get(stage) || 0) + amount);
+  });
+  return [...stageMap.entries()]
+    .map(([label, amount]) => ({ label, amount }))
+    .filter((item) => item.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+}
+
+function renderBillingCharts(summary) {
+  const pieRoot = bind('billing-pie-chart');
+  const barRoot = bind('billing-bar-chart');
+  if (!pieRoot || !barRoot) {
+    return;
+  }
+
+  if (!summary.total) {
+    pieRoot.innerHTML = '<p class="hint">暂无成本数据。</p>';
+    barRoot.innerHTML = '<p class="hint">暂无阶段成本数据。</p>';
+    return;
+  }
+
+  const typeItems = [
+    { label: '文本模型', amount: summary.text, color: '#4f9d69' },
+    { label: '图像模型', amount: summary.image, color: '#d58b35' },
+    { label: '视频模型', amount: summary.video, color: '#5778c8' },
+  ];
+  let cursor = 0;
+  const gradientStops = typeItems.map((item) => {
+    const start = cursor;
+    const end = cursor + (item.amount / summary.total) * 360;
+    cursor = end;
+    return `${item.color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`;
+  });
+
+  pieRoot.innerHTML = `
+    <div class="billing-pie-wrap">
+      <div class="billing-pie" style="--billing-pie-gradient: conic-gradient(${gradientStops.join(', ')});">
+        <strong>${formatMoney(summary.total)}</strong>
+        <span>总成本</span>
+      </div>
+      <div class="billing-legend">
+        ${typeItems.map((item) => `
+          <div class="billing-legend-item">
+            <span class="billing-legend-dot" style="background:${item.color};"></span>
+            <strong>${item.label}</strong>
+            <span>${formatMoney(item.amount)}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  const stageItems = getBillingStageSummary().slice(0, 8);
+  const maxAmount = stageItems[0]?.amount || 1;
+  barRoot.innerHTML = stageItems.length
+    ? stageItems.map((item) => {
+      const width = Math.max(4, (item.amount / maxAmount) * 100);
+      return `
+        <div class="billing-bar-row">
+          <div class="billing-bar-meta">
+            <strong>${item.label}</strong>
+            <span>${formatMoney(item.amount)}</span>
+          </div>
+          <div class="billing-bar-track">
+            <span style="width:${width.toFixed(2)}%;"></span>
+          </div>
+        </div>
+      `;
+    }).join('')
+    : '<p class="hint">暂无阶段成本数据。</p>';
+}
+
+function renderBillingWallet() {
+  const wallet = normalizeBillingWallet(state.billing_wallet);
+  state.billing_wallet = wallet;
+
+  const balanceRoot = bind('billing-wallet-balance');
+  const statusRoot = bind('billing-interface-status');
+  if (balanceRoot) {
+    balanceRoot.textContent = `¥${wallet.balance.toFixed(2)}`;
+  }
+  if (statusRoot) {
+    statusRoot.textContent = wallet.enabled
+      ? '当前接口状态：测试付费接口已开通'
+      : '当前接口状态：付费接口未开通';
+  }
+}
+
+function addBillingBalance(amount) {
+  const value = Number(amount || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    window.alert('请输入大于 0 的充值金额。');
+    return;
+  }
+  const wallet = normalizeBillingWallet(state.billing_wallet);
+  state.billing_wallet = {
+    enabled: true,
+    balance: wallet.balance + value,
+  };
+  saveState();
+  renderBillingWallet();
+}
+
+function openBillingPaymentModal(amount) {
+  const value = Number(amount || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    window.alert('请输入大于 0 的充值金额。');
+    return;
+  }
+  pendingBillingRechargeAmount = value;
+  const modal = bind('billing-payment-modal');
+  const amountText = bind('billing-payment-amount');
+  if (amountText) {
+    amountText.textContent = `充值金额：¥${value.toFixed(2)}`;
+  }
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function closeBillingPaymentModal() {
+  const modal = bind('billing-payment-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+  }
+}
+
+function completeBillingPayment() {
+  const amount = pendingBillingRechargeAmount;
+  pendingBillingRechargeAmount = 0;
+  closeBillingPaymentModal();
+  addBillingBalance(amount);
+}
+
 function renderBillingPage() {
   const summaryRoot = bind('billing-summary');
   const recordsRoot = bind('billing-records');
-  const statusRoot = bind('billing-interface-status');
+  const clearButton = bind('btn-billing-clear');
   if (!summaryRoot || !recordsRoot) {
     return;
   }
 
   const summary = getBillingSummary();
+  if (clearButton) {
+    clearButton.disabled = !summary.count;
+  }
   summaryRoot.innerHTML = `
     <div class="billing-card-row">
       <div><strong>累计成本</strong><div>${formatMoney(summary.total)}</div></div>
@@ -5299,18 +5585,34 @@ function renderBillingPage() {
       .join('')
     : '<p class="hint">当前没有成本记录，先在其他页面生成内容即可。</p>';
 
-  if (statusRoot) {
-    statusRoot.textContent = '当前接口状态：付费接口未开通';
-  }
+  renderBillingWallet();
+  renderBillingCharts(summary);
 }
 
 function bindBillingActions() {
-  bind('btn-billing-enable')?.addEventListener('click', () => {
-    const statusRoot = bind('billing-interface-status');
-    if (statusRoot) {
-      statusRoot.textContent = '当前接口状态：暂无真实付费逻辑，仅展示演示界面。';
+  bind('btn-billing-clear')?.addEventListener('click', clearCostRecords);
+  bind('btn-billing-recharge')?.addEventListener('click', () => {
+    openBillingPaymentModal(bind('billing-recharge-amount')?.value);
+  });
+  bind('btn-billing-test-add')?.addEventListener('click', () => {
+    addBillingBalance(10);
+  });
+  bind('btn-billing-payment-close')?.addEventListener('click', closeBillingPaymentModal);
+  bind('btn-billing-payment-done')?.addEventListener('click', completeBillingPayment);
+  bind('billing-payment-modal')?.addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) {
+      closeBillingPaymentModal();
     }
-    window.alert('付费接口入口已启用演示模式，后端真实付费逻辑尚未接入。');
+  });
+  bind('btn-billing-enable')?.addEventListener('click', () => {
+    const wallet = normalizeBillingWallet(state.billing_wallet);
+    state.billing_wallet = {
+      ...wallet,
+      enabled: true,
+    };
+    saveState();
+    renderBillingWallet();
+    window.alert('测试付费接口已开通，当前仍为本地演示余额。');
   });
 }
 
@@ -5393,6 +5695,7 @@ function initCostWidget() {
     window.location.href = '/billing';
   });
   bind('btn-cost-clear')?.addEventListener('click', clearCostRecords);
+  makeFloatingWidgetDraggable(root, bind('cost-widget-toggle'), 'cost_widget');
   renderCostWidget();
 }
 

@@ -75,6 +75,10 @@ def _default_project_state() -> Dict[str, Any]:
         "task_meta_expanded": False,
         "cost_records": [],
         "cost_panel_expanded": False,
+        "billing_wallet": {
+            "enabled": False,
+            "balance": 0.0,
+        },
         "workshop": None,
         "storyboard": None,
         "video_lab": {

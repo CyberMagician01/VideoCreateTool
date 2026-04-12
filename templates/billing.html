@@ -10,7 +10,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=ZCOOL+XiaoWei&display=swap"
         rel="stylesheet" />
-    <link rel="stylesheet" href="/static/style.css?v=20260412_cost_1" />
+    <link rel="stylesheet" href="/static/style.css?v=20260412_float_drag_1" />
 </head>
 
 <body>
@@ -101,14 +101,42 @@
         <section class="panel soft">
             <div class="grid two billing-summary-grid">
                 <article class="billing-card">
-                    <h3>成本总览</h3>
+                    <div class="billing-card-head">
+                        <h3>成本总览</h3>
+                        <button id="btn-billing-clear" class="secondary cost-widget-clear" type="button">清零</button>
+                    </div>
                     <div id="billing-summary" class="billing-summary"></div>
                 </article>
                 <article class="billing-card">
                     <h3>付费接口</h3>
                     <p id="billing-interface-status" class="hint">当前接口状态：未开通</p>
+                    <div class="billing-wallet">
+                        <div class="billing-wallet-balance">
+                            <strong>当前剩余</strong>
+                            <span id="billing-wallet-balance">¥0.00</span>
+                        </div>
+                        <div class="billing-wallet-actions">
+                            <input id="billing-recharge-amount" type="number" min="1" step="1" value="50" aria-label="充值金额">
+                            <button id="btn-billing-recharge" type="button">充值</button>
+                            <button id="btn-billing-test-add" class="secondary" type="button">测试增加 ¥10</button>
+                        </div>
+                    </div>
                     <button id="btn-billing-enable" class="secondary">开通付费接口</button>
-                    <p class="hint" style="margin-top: 12px;">后端付费逻辑尚未接入，可先查看账单明细与成本结构。</p>
+                    <p class="hint" style="margin-top: 12px;">当前为本地测试余额，后端真实充值与扣费逻辑尚未接入。</p>
+                </article>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>成本分布</h2>
+            <div class="billing-chart-grid">
+                <article class="billing-card">
+                    <h3>类型占比</h3>
+                    <div id="billing-pie-chart" class="billing-pie-chart"></div>
+                </article>
+                <article class="billing-card">
+                    <h3>阶段成本</h3>
+                    <div id="billing-bar-chart" class="billing-bar-chart"></div>
                 </article>
             </div>
         </section>
@@ -119,7 +147,22 @@
         </section>
     </main>
 
-    <script src="/static/app.js?v=20260412_cost_1"></script>
+    <div id="billing-payment-modal" class="billing-payment-modal" aria-hidden="true">
+        <div class="billing-payment-dialog">
+            <div class="billing-payment-head">
+                <div>
+                    <h3>微信支付充值</h3>
+                    <p id="billing-payment-amount" class="hint">充值金额：¥0.00</p>
+                </div>
+                <button id="btn-billing-payment-close" class="secondary" type="button">退出</button>
+            </div>
+            <img src="/static/payment/wechat-pay.png" alt="微信支付二维码" class="billing-payment-image">
+            <button id="btn-billing-payment-done" type="button">支付完毕</button>
+            <p class="hint">测试模式：点击“支付完毕”后会把本次充值金额加入当前余额。</p>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=20260412_float_drag_1"></script>
 </body>
 
 </html>
