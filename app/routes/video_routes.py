@@ -15,6 +15,7 @@ from app.services.video_service import (
     _create_video_task,
     _extract_last_frame_to_qiniu,
     _extend_video_prompts,
+    _mix_video_with_bgm,
     _upload_image_to_qiniu_kodo,
     _qiniu_web_search,
     _query_video_task,
@@ -23,12 +24,23 @@ from app.services.video_service import (
 video_bp = Blueprint("video", __name__)
 
 _UPLOAD_MAX_BYTES = 15 * 1024 * 1024
+_AUDIO_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 _ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+_ALLOWED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
 _MIME_TO_EXTENSION = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
     "image/bmp": ".bmp",
+}
+_AUDIO_MIME_TO_EXTENSION = {
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/mp4": ".m4a",
+    "audio/aac": ".aac",
+    "audio/ogg": ".ogg",
+    "audio/flac": ".flac",
 }
 
 
@@ -91,6 +103,89 @@ def upload_video_image():
             ),
             500,
         )
+
+
+@video_bp.post("/api/video/upload-audio")
+def upload_video_audio():
+    if request.content_length and request.content_length > _AUDIO_UPLOAD_MAX_BYTES:
+        return jsonify({"ok": False, "error": "音频过大，请上传 50MB 以内音频。"}), 413
+
+    file = request.files.get("audio")
+    if file is None or not str(file.filename or "").strip():
+        return jsonify({"ok": False, "error": "请先选择音频文件。"}), 400
+
+    filename = secure_filename(file.filename)
+    suffix = Path(filename).suffix.lower()
+    mime_type = str(file.mimetype or "").strip().lower()
+
+    if not suffix:
+        suffix = _AUDIO_MIME_TO_EXTENSION.get(mime_type, "")
+    if suffix not in _ALLOWED_AUDIO_EXTENSIONS:
+        return jsonify({"ok": False, "error": "仅支持 mp3/wav/m4a/aac/ogg/flac 音频。"}), 400
+    if mime_type and not (mime_type.startswith("audio/") or mime_type == "application/octet-stream"):
+        return jsonify({"ok": False, "error": "上传文件不是音频类型。"}), 400
+
+    upload_dir = BASE_DIR / "static" / "uploads" / "video_audio"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    new_name = f"{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex[:10]}{suffix}"
+    save_path = upload_dir / new_name
+    file.save(save_path)
+
+    relative_url = f"/static/uploads/video_audio/{new_name}"
+    local_audio_url = f"{request.url_root.rstrip('/')}{relative_url}"
+    object_key = f"video_audio/{new_name}"
+
+    try:
+        public_audio_url = _upload_image_to_qiniu_kodo(str(save_path), object_key)
+        return jsonify(
+            {
+                "ok": True,
+                "audio_url": public_audio_url,
+                "relative_url": relative_url,
+                "filename": new_name,
+                "storage": "qiniu_kodo",
+            }
+        )
+    except Exception as upload_err:  # noqa: BLE001
+        return jsonify(
+            {
+                "ok": True,
+                "audio_url": local_audio_url,
+                "relative_url": relative_url,
+                "filename": new_name,
+                "storage": "local",
+                "warning": "音频已保存到本地，但未能上传到公网对象存储。",
+                "detail": str(upload_err),
+            }
+        )
+
+
+@video_bp.post("/api/video/mix-bgm")
+def mix_video_bgm():
+    req_json = request.get_json(silent=True) or {}
+    payload = req_json.get("payload", req_json)
+    video_url = str(payload.get("video_url", "")).strip()
+    audio_url = str(payload.get("audio_url", "")).strip()
+    if video_url.startswith("/"):
+        video_url = f"{request.url_root.rstrip('/')}{video_url}"
+    if audio_url.startswith("/"):
+        audio_url = f"{request.url_root.rstrip('/')}{audio_url}"
+    try:
+        volume = float(payload.get("volume", 0.35))
+    except (TypeError, ValueError):
+        volume = 0.35
+
+    try:
+        result = _mix_video_with_bgm(video_url, audio_url, volume=volume)
+        return jsonify({"ok": True, "result": result})
+    except requests.HTTPError as e:
+        detail: Optional[str] = None
+        if e.response is not None:
+            detail = e.response.text
+        return jsonify({"ok": False, "error": "BGM mix failed", "detail": detail}), 502
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @video_bp.post("/api/video/script")

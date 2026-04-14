@@ -125,6 +125,85 @@ def _upload_image_to_qiniu_kodo(local_file_path: str, object_key: str) -> str:
     return f"{public_domain}/{quote(object_key)}"
 
 
+def _download_media_to_file(url: str, local_file_path: Path) -> None:
+    media_url = str(url or "").strip()
+    if not media_url:
+        raise ValueError("media url is required")
+
+    resp = _request_no_proxy("GET", media_url, stream=True, timeout=180, verify=False)
+    resp.raise_for_status()
+    with local_file_path.open("wb") as fp:
+        for chunk in resp.iter_content(chunk_size=1024 * 256):
+            if chunk:
+                fp.write(chunk)
+
+
+def _mix_video_with_bgm(video_url: str, audio_url: str, volume: float = 0.35) -> Dict[str, str]:
+    video_url = str(video_url or "").strip()
+    audio_url = str(audio_url or "").strip()
+    if not video_url:
+        raise ValueError("video_url is required")
+    if not audio_url:
+        raise ValueError("audio_url is required")
+
+    temp_dir = Path(__file__).resolve().parents[2] / "static" / "uploads" / "video_bgm"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = int(time.time())
+    nonce = uuid4().hex[:8]
+    video_suffix = Path(video_url.split("?")[0]).suffix.lower() or ".mp4"
+    audio_suffix = Path(audio_url.split("?")[0]).suffix.lower() or ".mp3"
+    local_video = temp_dir / f"tmp_video_{ts}_{nonce}{video_suffix}"
+    local_audio = temp_dir / f"tmp_audio_{ts}_{nonce}{audio_suffix}"
+    output_name = f"video_bgm_{ts}_{nonce}.mp4"
+    output_path = temp_dir / output_name
+
+    try:
+        _download_media_to_file(video_url, local_video)
+        _download_media_to_file(audio_url, local_audio)
+
+        from moviepy.editor import AudioFileClip, CompositeAudioClip, VideoFileClip, afx
+
+        with VideoFileClip(str(local_video)) as clip, AudioFileClip(str(local_audio)) as bgm_source:
+            duration = float(clip.duration or 0)
+            if duration <= 0:
+                raise ValueError("video duration is invalid")
+
+            bgm = bgm_source
+            if float(bgm_source.duration or 0) < duration:
+                bgm = afx.audio_loop(bgm_source, duration=duration)
+            else:
+                bgm = bgm_source.subclip(0, duration)
+
+            bgm = bgm.volumex(max(0.0, min(1.0, float(volume or 0.35))))
+            final_audio = CompositeAudioClip([clip.audio, bgm]) if clip.audio else bgm
+            final_clip = clip.set_audio(final_audio)
+            final_clip.write_videofile(
+                str(output_path),
+                codec="libx264",
+                audio_codec="aac",
+                fps=clip.fps or 24,
+                logger=None,
+            )
+            final_clip.close()
+            if hasattr(final_audio, "close"):
+                final_audio.close()
+
+        object_key = f"video_bgm/{output_name}"
+        try:
+            public_url = _upload_image_to_qiniu_kodo(str(output_path), object_key)
+            return {"video_url": public_url, "storage": "qiniu_kodo"}
+        except Exception:  # noqa: BLE001
+            return {"video_url": f"/static/uploads/video_bgm/{output_name}", "storage": "local"}
+    finally:
+        for path in (local_video, local_audio):
+            try:
+                if path.exists():
+                    path.unlink()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def _extract_last_frame_to_qiniu(video_url: str) -> str:
     url = str(video_url or "").strip()
     if not url:

@@ -706,6 +706,9 @@ function normalizeVideoState(videoLab) {
     image_url: '',
     start_image_url: '',
     end_image_url: '',
+    audio_url: '',
+    audio_mix_url: '',
+    audio_mix_source_url: '',
     task_id: '',
     task_status: '',
     video_url: '',
@@ -744,6 +747,9 @@ function normalizeVideoState(videoLab) {
     image_url: toText(videoLab.image_url),
     start_image_url: toText(videoLab.start_image_url),
     end_image_url: toText(videoLab.end_image_url),
+    audio_url: toText(videoLab.audio_url),
+    audio_mix_url: toText(videoLab.audio_mix_url),
+    audio_mix_source_url: toText(videoLab.audio_mix_source_url),
     task_id: toText(videoLab.task_id),
     task_status: toText(videoLab.task_status),
     video_url: toText(videoLab.video_url || videoLab.url),
@@ -1428,7 +1434,8 @@ async function executeRoutedAction(routeResult, rawCommand, options = {}) {
     video.last_check_time = new Date().toLocaleString();
     saveState();
     if (video.video_url) {
-      renderVideoResult(video.video_url);
+      const renderUrl = await ensureVideoBgmMixed(video.video_url, { silent: true });
+      renderVideoResult(renderUrl);
     }
     const text = `视频任务状态: ${video.task_status || 'UNKNOWN'}\nTask ID: ${taskId}${video.video_url ? `\nURL: ${video.video_url}` : ''}`;
     return { ok: true, text };
@@ -2452,6 +2459,54 @@ function stopVideoPolling(notify = true) {
   }
 }
 
+async function ensureVideoBgmMixed(videoUrl, { silent = false } = {}) {
+  const video = getVideoState();
+  const sourceVideoUrl = String(videoUrl || '').trim();
+  const audioUrl = String(video.audio_url || bind('video-audio-url')?.value?.trim() || '').trim();
+
+  if (!sourceVideoUrl || !audioUrl) {
+    return sourceVideoUrl;
+  }
+  if (video.audio_mix_url && video.audio_mix_source_url === sourceVideoUrl) {
+    return video.audio_mix_url;
+  }
+
+  if (!silent) {
+    updateOutput('video-task-output', `视频已生成，正在混入上传的 BGM...`);
+  }
+
+  const data = await fetchJson('/api/video/mix-bgm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      payload: {
+        video_url: sourceVideoUrl,
+        audio_url: audioUrl,
+        volume: 0.35,
+      },
+    }),
+  });
+
+  if (!data.ok) {
+    const message = `BGM 混入失败：${data.error || 'unknown'}${data.detail ? `\n${data.detail}` : ''}`;
+    if (!silent) {
+      updateOutput('video-task-output', message);
+    }
+    console.warn(message);
+    return sourceVideoUrl;
+  }
+
+  const mixedUrl = String(data.result?.video_url || '').trim();
+  if (!mixedUrl) {
+    return sourceVideoUrl;
+  }
+
+  video.audio_mix_url = mixedUrl;
+  video.audio_mix_source_url = sourceVideoUrl;
+  saveState();
+  return mixedUrl;
+}
+
 async function queryVideoTaskOnce({ silent = false } = {}) {
   const video = getVideoState();
   if (!video.task_id) {
@@ -2483,7 +2538,13 @@ async function queryVideoTaskOnce({ silent = false } = {}) {
 
   if (video.video_url) {
     text += '\n视频URL已生成。';
-    renderVideoResult(video.video_url);
+    const renderUrl = await ensureVideoBgmMixed(video.video_url, { silent });
+    if (renderUrl !== video.video_url) {
+      text += '\n已混入上传的 BGM。';
+    } else if (video.audio_url && !video.audio_mix_url) {
+      text += '\nBGM 暂未混入成功，先展示原视频。';
+    }
+    renderVideoResult(renderUrl);
   }
 
   if (video.task_status === 'SUCCEEDED' || video.task_status === 'FAILED' || video.task_status === 'CANCELED') {
@@ -3661,6 +3722,8 @@ function resetVideoRunState({
   video.task_id = '';
   video.task_status = '';
   video.video_url = '';
+  video.audio_mix_url = '';
+  video.audio_mix_source_url = '';
   video.last_check_time = '';
   if (!preservePrompt) {
     video.prompt = '';
@@ -3999,6 +4062,9 @@ function restoreOutputsOnPageLoad() {
   if (bind('video-end-image-url')) {
     bind('video-end-image-url').value = video.end_image_url || '';
   }
+  if (bind('video-audio-url')) {
+    bind('video-audio-url').value = video.audio_url || '';
+  }
   if (bind('video-image-preview-wrap') && bind('video-image-preview')) {
     if (video.image_url) {
       bind('video-image-preview-wrap').style.display = 'block';
@@ -4008,10 +4074,24 @@ function restoreOutputsOnPageLoad() {
       bind('video-image-preview').removeAttribute('src');
     }
   }
+  if (bind('video-audio-preview-wrap') && bind('video-audio-preview')) {
+    if (video.audio_url) {
+      bind('video-audio-preview-wrap').style.display = 'block';
+      bind('video-audio-preview').src = video.audio_url;
+    } else {
+      bind('video-audio-preview-wrap').style.display = 'none';
+      bind('video-audio-preview').removeAttribute('src');
+    }
+  }
   if (bind('video-image-upload-status')) {
     bind('video-image-upload-status').textContent = video.image_url
       ? '已加载参考图，将按图生视频模式提交。'
       : '上传后将自动用于图生视频';
+  }
+  if (bind('video-audio-upload-status')) {
+    bind('video-audio-upload-status').textContent = video.audio_url
+      ? '已加载 BGM，视频生成完成后会自动混入。'
+      : '上传后会在视频生成完成后自动混入';
   }
   if (bind('video-task-output') && video.task_id) {
     updateOutput('video-task-output', `最近任务: ${video.task_id}\n状态: ${video.task_status || 'UNKNOWN'}`);
@@ -4020,7 +4100,7 @@ function restoreOutputsOnPageLoad() {
     bind('video-auto-poll').checked = Boolean(video.auto_poll);
   }
   if (video.video_url) {
-    renderVideoResult(video.video_url);
+    renderVideoResult(video.audio_mix_url || video.video_url);
   }
 
   if (bind('video-long-output') && video.long_segments && video.long_segments.length) {
@@ -4181,7 +4261,8 @@ ${data.detail || ''}`);
         }
 
         if (url) {
-          renderVideoResult(url);
+          const renderUrl = await ensureVideoBgmMixed(url, { silent: false });
+          renderVideoResult(renderUrl);
         }
       } catch (err) {
         updateOutput('video-task-output', `错误: ${err.message}`);
@@ -4538,6 +4619,7 @@ function bindExportActions() {
 
 function bindVideoActions() {
   let imageUploadInFlight = false;
+  let audioUploadInFlight = false;
 
   function setVideoImagePreview(url) {
     const previewWrap = bind('video-image-preview-wrap');
@@ -4592,11 +4674,72 @@ function bindVideoActions() {
     status.style.color = isError ? '#a3322e' : 'var(--muted)';
   }
 
+  function setVideoAudioPreview(url) {
+    const previewWrap = bind('video-audio-preview-wrap');
+    const preview = bind('video-audio-preview');
+    if (!previewWrap || !preview) {
+      return;
+    }
+
+    const audioUrl = String(url || '').trim();
+    if (!audioUrl) {
+      previewWrap.style.display = 'none';
+      preview.removeAttribute('src');
+      return;
+    }
+
+    previewWrap.style.display = 'block';
+    preview.src = audioUrl;
+  }
+
+  function setVideoAudioProgress(percent) {
+    const progressWrap = bind('video-audio-progress-wrap');
+    const progress = bind('video-audio-progress');
+    const progressText = bind('video-audio-progress-text');
+    if (!progressWrap || !progress || !progressText) {
+      return;
+    }
+
+    const value = Math.max(0, Math.min(100, Number(percent || 0)));
+    progressWrap.style.display = 'flex';
+    progress.value = value;
+    progressText.textContent = `${Math.round(value)}%`;
+  }
+
+  function hideVideoAudioProgress() {
+    const progressWrap = bind('video-audio-progress-wrap');
+    const progress = bind('video-audio-progress');
+    const progressText = bind('video-audio-progress-text');
+    if (!progressWrap || !progress || !progressText) {
+      return;
+    }
+    progressWrap.style.display = 'none';
+    progress.value = 0;
+    progressText.textContent = '0%';
+  }
+
+  function setVideoAudioUploadStatus(text, isError = false) {
+    const status = bind('video-audio-upload-status');
+    if (!status) {
+      return;
+    }
+    status.textContent = text;
+    status.style.color = isError ? '#a3322e' : 'var(--muted)';
+  }
+
   function syncVideoImageInputsToState() {
     const video = getVideoState();
     video.image_url = bind('video-image-url')?.value.trim() || '';
     video.start_image_url = bind('video-start-image-url')?.value.trim() || '';
     video.end_image_url = bind('video-end-image-url')?.value.trim() || '';
+    saveState();
+  }
+
+  function syncVideoAudioInputToState() {
+    const video = getVideoState();
+    video.audio_url = bind('video-audio-url')?.value.trim() || '';
+    video.audio_mix_url = '';
+    video.audio_mix_source_url = '';
     saveState();
   }
 
@@ -4758,6 +4901,94 @@ function bindVideoActions() {
     }
   }
 
+  async function uploadVideoAudio(file) {
+    if (audioUploadInFlight) {
+      return;
+    }
+    if (!file) {
+      return;
+    }
+    const fileType = String(file.type || '').toLowerCase();
+    const audioExtOk = /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(String(file.name || ''));
+    if (fileType && !fileType.startsWith('audio/') && !audioExtOk) {
+      setVideoAudioUploadStatus('仅支持音频文件（mp3/wav/m4a/aac/ogg/flac）。', true);
+      return;
+    }
+    if (!fileType && !audioExtOk) {
+      setVideoAudioUploadStatus('仅支持音频文件（mp3/wav/m4a/aac/ogg/flac）。', true);
+      return;
+    }
+    if (Number(file.size || 0) > 50 * 1024 * 1024) {
+      setVideoAudioUploadStatus('音频过大，请上传 50MB 以内文件。', true);
+      return;
+    }
+
+    setVideoAudioUploadStatus('正在上传音频...');
+    setVideoAudioProgress(0);
+    audioUploadInFlight = true;
+
+    const formData = new FormData();
+    formData.append('audio', file);
+
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/video/upload-audio', true);
+        xhr.timeout = 120000;
+
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) {
+            return;
+          }
+          setVideoAudioProgress((event.loaded / event.total) * 100);
+        };
+
+        xhr.onload = () => {
+          let parsed = {};
+          try {
+            parsed = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+          } catch (err) {
+            reject(new Error(`上传返回异常（HTTP ${xhr.status}）`));
+            return;
+          }
+          if (xhr.status < 200 || xhr.status >= 300 || !parsed.ok) {
+            const backendMsg = [parsed.error, parsed.detail].filter(Boolean).join(' ');
+            reject(new Error(backendMsg || `上传失败（HTTP ${xhr.status}）`));
+            return;
+          }
+          resolve(parsed);
+        };
+
+        xhr.onerror = () => reject(new Error('网络异常，上传失败。'));
+        xhr.ontimeout = () => reject(new Error('上传超时，请稍后重试。'));
+        xhr.onabort = () => reject(new Error('上传已取消。'));
+
+        xhr.send(formData);
+      });
+
+      setVideoAudioProgress(100);
+
+      const audioUrl = String(data.audio_url || '').trim();
+      if (!audioUrl) {
+        throw new Error('上传成功但未返回可用音频地址。');
+      }
+
+      if (bind('video-audio-url')) {
+        bind('video-audio-url').value = audioUrl;
+      }
+      setVideoAudioPreview(audioUrl);
+      syncVideoAudioInputToState();
+      setVideoAudioUploadStatus(data.warning || 'BGM 上传成功，视频生成完成后会自动混入。');
+    } catch (err) {
+      setVideoAudioUploadStatus(`上传失败: ${err.message}`, true);
+    } finally {
+      audioUploadInFlight = false;
+      setTimeout(() => {
+        hideVideoAudioProgress();
+      }, 500);
+    }
+  }
+
   const imageDropzone = bind('video-image-dropzone');
   const imageFileInput = bind('video-image-file');
   if (imageDropzone && imageFileInput) {
@@ -4795,6 +5026,43 @@ function bindVideoActions() {
     });
   }
 
+  const audioDropzone = bind('video-audio-dropzone');
+  const audioFileInput = bind('video-audio-file');
+  if (audioDropzone && audioFileInput) {
+    audioDropzone.addEventListener('click', () => {
+      audioFileInput.click();
+    });
+
+    audioDropzone.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        audioFileInput.click();
+      }
+    });
+
+    audioDropzone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      audioDropzone.classList.add('is-dragover');
+    });
+
+    audioDropzone.addEventListener('dragleave', () => {
+      audioDropzone.classList.remove('is-dragover');
+    });
+
+    audioDropzone.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      audioDropzone.classList.remove('is-dragover');
+      const file = event.dataTransfer?.files?.[0];
+      await uploadVideoAudio(file);
+    });
+
+    audioFileInput.addEventListener('change', async () => {
+      const file = audioFileInput.files?.[0];
+      await uploadVideoAudio(file);
+      audioFileInput.value = '';
+    });
+  }
+
   const imageUrlInput = bind('video-image-url');
   if (imageUrlInput) {
     imageUrlInput.addEventListener('change', () => {
@@ -4821,6 +5089,35 @@ function bindVideoActions() {
       syncVideoImageInputsToState();
       hideVideoImageProgress();
       setVideoImageUploadStatus('已删除参考图，当前将按文生视频模式提交。');
+    });
+  }
+
+  const audioUrlInput = bind('video-audio-url');
+  if (audioUrlInput) {
+    audioUrlInput.addEventListener('change', () => {
+      const audioUrl = audioUrlInput.value.trim();
+      setVideoAudioPreview(audioUrl);
+      syncVideoAudioInputToState();
+      setVideoAudioUploadStatus(
+        audioUrl ? '已设置 BGM，视频生成完成后会自动混入。' : '上传后会在视频生成完成后自动混入',
+        false,
+      );
+    });
+  }
+
+  const clearAudioButton = bind('btn-video-audio-clear');
+  if (clearAudioButton) {
+    clearAudioButton.addEventListener('click', () => {
+      if (bind('video-audio-url')) {
+        bind('video-audio-url').value = '';
+      }
+      if (bind('video-audio-file')) {
+        bind('video-audio-file').value = '';
+      }
+      setVideoAudioPreview('');
+      syncVideoAudioInputToState();
+      hideVideoAudioProgress();
+      setVideoAudioUploadStatus('已删除 BGM，当前只返回模型生成的视频。');
     });
   }
 
@@ -4944,6 +5241,7 @@ function bindVideoActions() {
       const imageUrl = bind('video-image-url')?.value.trim() || '';
       const startImageUrl = bind('video-start-image-url')?.value.trim() || '';
       const endImageUrl = bind('video-end-image-url')?.value.trim() || '';
+      const audioUrl = bind('video-audio-url')?.value.trim() || '';
 
       const payload = {
         prompt: bind('video-prompt')?.value.trim() || '',
@@ -4981,6 +5279,9 @@ function bindVideoActions() {
       video.image_url = payload.image_url;
       video.start_image_url = payload.start_image_url;
       video.end_image_url = payload.end_image_url;
+      video.audio_url = audioUrl;
+      video.audio_mix_url = '';
+      video.audio_mix_source_url = '';
       video.task_id = output.task_id || output.request_id || '';
       video.task_status = output.task_status || output.status || 'PENDING';
       video.auto_poll = Boolean(bind('video-auto-poll')?.checked);
@@ -5030,6 +5331,7 @@ function bindVideoActions() {
         image_url: bind('video-image-url')?.value.trim() || '',
         start_image_url: bind('video-start-image-url')?.value.trim() || '',
         end_image_url: bind('video-end-image-url')?.value.trim() || '',
+        audio_url: bind('video-audio-url')?.value.trim() || '',
         total_duration: totalDuration,
         segment_duration: segmentDuration,
         prompt_extend: true,
@@ -5067,6 +5369,9 @@ function bindVideoActions() {
         video.image_url = payload.image_url;
         video.start_image_url = payload.start_image_url;
         video.end_image_url = payload.end_image_url;
+        video.audio_url = payload.audio_url;
+        video.audio_mix_url = '';
+        video.audio_mix_source_url = '';
         video.long_segments = normalizedVideo.long_segments;
         video.total_duration = normalizedVideo.total_duration;
         video.filename_prefix = normalizedVideo.filename_prefix;
