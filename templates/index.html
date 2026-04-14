@@ -244,6 +244,9 @@
         let startLeft = 0;
         let dragging = false;
         scroller.addEventListener('pointerdown', (event) => {
+          if (event.target.closest('a')) {
+            return;
+          }
           dragging = true;
           startX = event.clientX;
           startLeft = scroller.scrollLeft;
@@ -257,8 +260,13 @@
           scroller.scrollLeft = startLeft - (event.clientX - startX);
         });
         scroller.addEventListener('pointerup', (event) => {
+          if (!dragging) {
+            return;
+          }
           dragging = false;
-          scroller.releasePointerCapture(event.pointerId);
+          if (scroller.hasPointerCapture(event.pointerId)) {
+            scroller.releasePointerCapture(event.pointerId);
+          }
           scroller.classList.remove('is-dragging');
         });
       });
