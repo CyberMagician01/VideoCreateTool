@@ -12,8 +12,17 @@
 - 标题包装建议
 - 视频脚本生成
 - 视频任务创建 / 查询
+- 视频 BGM 音频导入与自动混音
 - DOCX / PDF 导出
 - 网页搜索辅助
+
+## 最近更新（2026-04-14）
+
+- 视频实验室新增 BGM 音频导入：支持拖拽/点击上传音频，也支持手动粘贴音频 URL。
+- 视频任务成功后，如果已选择 BGM，会自动调用后端混音接口，把音频合成到生成视频里并展示混音后的视频。
+- 新增后端接口：`POST /api/video/upload-audio`，用于上传 `mp3/wav/m4a/aac/ogg/flac` 音频。
+- 新增后端接口：`POST /api/video/mix-bgm`，用于将视频 URL 和音频 URL 合成为带 BGM 的视频。
+- `video_lab` 状态新增并持久化 `audio_url/audio_mix_url/audio_mix_source_url`。
 
 ## 最近更新（2026-04-11）
 
@@ -169,6 +178,8 @@ AI 创作流程接口，例如：
 - 创建视频任务
 - 创建长视频任务
 - 创建下一段续段任务（基于上一段视频末帧）
+- 上传 BGM 音频
+- 视频与 BGM 混音
 - 查询视频任务状态
 - 网页搜索
 
@@ -212,6 +223,7 @@ AI 创作流程接口，例如：
 - 查询视频任务
 - 长视频拆段
 - 视频末帧抽取与上传
+- 视频 BGM 混音
 - 长视频自动续段（上一段末帧驱动下一段）
 - 搜索接口封装
 - 视频状态标准化
@@ -304,7 +316,7 @@ QINIU_LLM_BASE_URL=your_llm_base_url
 QINIU_VIDEO_MODEL=wan2.6-t2v
 QINIU_VIDEO_BASE_URL=your_video_base_url
 
-# 图生视频图片公网化（必填，否则本地上传图无法被云端模型读取）
+# 图生视频图片、BGM 音频、混音视频公网化
 QINIU_KODO_BUCKET=your_bucket_name
 QINIU_KODO_PUBLIC_DOMAIN=your-public-domain.com
 # 可选，默认 https://up.qiniup.com
