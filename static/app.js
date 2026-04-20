@@ -2565,6 +2565,14 @@ function findLongSegmentByTaskId(video, taskId) {
   return (video.long_segments || []).find((segment) => String(segment.task_id || '') === id) || null;
 }
 
+function findLongSegmentByIndex(video, index) {
+  const targetIndex = Number(index || 0);
+  if (!targetIndex) {
+    return null;
+  }
+  return (video.long_segments || []).find((segment) => Number(segment.index || 0) === targetIndex) || null;
+}
+
 function updateLongSegmentResult(video, taskId, status, videoUrl) {
   const segment = findLongSegmentByTaskId(video, taskId);
   if (!segment) {
@@ -2611,6 +2619,13 @@ async function continueLongVideoChain(taskId, status, videoUrl, { silent = false
     return false;
   }
 
+  const nextSegmentIndex = nextSegment.index;
+  const nextSegmentPrompt = nextSegment.prompt;
+  const nextSegmentDuration = nextSegment.duration || 10;
+  const nextSegmentModel = video.long_model || bind('video-model')?.value.trim() || 'viduq3-turbo';
+  const nextSegmentSize = video.long_size || bind('video-size')?.value.trim() || '1280*720';
+  const nextSegmentPromptExtend = video.long_prompt_extend !== false;
+
   const prevVideoUrl = String(videoUrl || currentSegment.video_url || '').trim();
   if (!prevVideoUrl) {
     updateOutput('video-long-output', `第 ${currentSegment.index} 段已成功，但没有拿到视频 URL，暂时无法续第 ${nextSegment.index} 段。`);
@@ -2635,20 +2650,24 @@ async function continueLongVideoChain(taskId, status, videoUrl, { silent = false
       body: JSON.stringify({
         payload: {
           prev_video_url: prevVideoUrl,
-          prompt: nextSegment.prompt,
-          duration: nextSegment.duration || 10,
-          model: video.long_model || bind('video-model')?.value.trim() || 'viduq3-turbo',
-          size: video.long_size || bind('video-size')?.value.trim() || '1280*720',
-          prompt_extend: video.long_prompt_extend !== false,
+          prompt: nextSegmentPrompt,
+          duration: nextSegmentDuration,
+          model: nextSegmentModel,
+          size: nextSegmentSize,
+          prompt_extend: nextSegmentPromptExtend,
         },
       }),
     });
 
     if (!data.ok) {
-      nextSegment.task_status = 'CREATE_FAILED';
+      const latestVideo = getVideoState();
+      const latestNextSegment = findLongSegmentByIndex(latestVideo, nextSegmentIndex);
+      if (latestNextSegment) {
+        latestNextSegment.task_status = 'CREATE_FAILED';
+      }
       saveState();
       renderLongSegmentsList();
-      updateOutput('video-long-output', `第 ${nextSegment.index} 段创建失败：${data.error}\n${data.detail || ''}`);
+      updateOutput('video-long-output', `第 ${nextSegmentIndex} 段创建失败：${data.error}\n${data.detail || ''}`);
       stopVideoPolling(false);
       return false;
     }
@@ -2656,36 +2675,49 @@ async function continueLongVideoChain(taskId, status, videoUrl, { silent = false
     const output = data.result?.output || data.result || {};
     const nextTaskId = output.task_id || output.request_id || '';
     if (!nextTaskId) {
-      nextSegment.task_status = 'CREATE_FAILED';
+      const latestVideo = getVideoState();
+      const latestNextSegment = findLongSegmentByIndex(latestVideo, nextSegmentIndex);
+      if (latestNextSegment) {
+        latestNextSegment.task_status = 'CREATE_FAILED';
+      }
       saveState();
       renderLongSegmentsList();
-      updateOutput('video-long-output', `第 ${nextSegment.index} 段创建失败：接口未返回 Task ID。`);
+      updateOutput('video-long-output', `第 ${nextSegmentIndex} 段创建失败：接口未返回 Task ID。`);
       stopVideoPolling(false);
       return false;
     }
 
-    nextSegment.task_id = nextTaskId;
-    nextSegment.task_status = output.task_status || output.status || 'PENDING';
-    nextSegment.frame_image_url = data.frame_image_url || '';
-    video.task_id = nextTaskId;
-    video.task_status = nextSegment.task_status;
-    video.video_url = '';
-    video.audio_mix_url = '';
-    video.audio_mix_source_url = '';
-    video.last_check_time = new Date().toLocaleString();
+    const latestVideo = getVideoState();
+    const latestNextSegment = findLongSegmentByIndex(latestVideo, nextSegmentIndex);
+    const nextTaskStatus = output.task_status || output.status || 'PENDING';
+    if (latestNextSegment) {
+      latestNextSegment.task_id = nextTaskId;
+      latestNextSegment.task_status = nextTaskStatus;
+      latestNextSegment.frame_image_url = data.frame_image_url || '';
+    }
+    latestVideo.task_id = nextTaskId;
+    latestVideo.task_status = nextTaskStatus;
+    latestVideo.video_url = '';
+    latestVideo.audio_mix_url = '';
+    latestVideo.audio_mix_source_url = '';
+    latestVideo.last_check_time = new Date().toLocaleString();
     saveState();
     renderLongSegmentsList();
-    updateOutput('video-long-output', `第 ${nextSegment.index} 段任务已创建。\nTask ID: ${nextTaskId}\n状态: ${nextSegment.task_status}`);
+    updateOutput('video-long-output', `第 ${nextSegmentIndex} 段任务已创建。\nTask ID: ${nextTaskId}\n状态: ${nextTaskStatus}`);
 
-    if (video.auto_poll) {
+    if (latestVideo.auto_poll) {
       startVideoPolling();
     }
     return true;
   } catch (err) {
-    nextSegment.task_status = 'CREATE_FAILED';
+    const latestVideo = getVideoState();
+    const latestNextSegment = findLongSegmentByIndex(latestVideo, nextSegmentIndex);
+    if (latestNextSegment) {
+      latestNextSegment.task_status = 'CREATE_FAILED';
+    }
     saveState();
     renderLongSegmentsList();
-    updateOutput('video-long-output', `第 ${nextSegment.index} 段创建失败：${err.message}`);
+    updateOutput('video-long-output', `第 ${nextSegmentIndex} 段创建失败：${err.message}`);
     stopVideoPolling(false);
     return false;
   } finally {
